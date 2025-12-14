@@ -1,0 +1,44 @@
+# --- GENERAL SYSTEM FILES ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+
+# --- BACKEND (PYTHON / FASTAPI) ---
+backend/__pycache__/
+backend/*.py[cod]
+backend/.venv/
+backend/venv/
+backend/env/
+
+# > Database & Secrets (JANGAN DI-UPLOAD!)
+backend/.env
+backend/alimpanel.db
+backend/alimpanel.db-journal
+
+# > User Data (PENTING: Jangan upload website user & backup)
+backend/www_data/
+backend/backups/
+
+# > Logs Nginx/App (Kalau ada di folder project)
+backend/logs/
+
+# --- FRONTEND (NEXT.JS / NODE) ---
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/dist/
+
+# > Frontend Secrets
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# > Debug Logs
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
