@@ -160,5 +160,12 @@ echo "⚙️ Configuring PM2 Startup..."
 pm2 startup systemd -u alimpanel --hp /home/alimpanel | bash
 pm2 save
 
+echo "📂 Preparing Web Directory..."
+# Buat folder untuk menampung website user
+mkdir -p /var/www/sarahpanel
+# Pastikan user alimpanel yang punya folder ini
+chown -R alimpanel:alimpanel /var/www/sarahpanel
+chmod -R 755 /var/www/sarahpanel
+
 echo "✅ INSTALLATION COMPLETE!"
 echo "➡️  Access Panel: http://${PUBLIC_IP}:${PANEL_PORT}"

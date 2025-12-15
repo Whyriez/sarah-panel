@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import os
 from app.system.pm2_manager import start_app
-from app.system.nginx_manager import create_nginx_config
+from app.system.nginx_manager import create_nginx_config, delete_nginx_config
 from app.core.database import get_db
 from app.modules.sites import models, schemas
 from app.modules.auth.deps import get_current_user
@@ -206,6 +206,7 @@ def enable_ssl(site_id: int, db: Session = Depends(get_db), current_user: User =
     try:
         # Command: certbot --nginx -d domain.com --non-interactive --agree-tos -m admin@example.com
         cmd = [
+            "sudo",
             "certbot", "--nginx",
             "-d", site.domain,
             "--non-interactive",
@@ -264,7 +265,7 @@ def update_site_port(
         delete_app(site.domain)
         # Start yang baru (port baru)
         # Kita perlu path scriptnya
-        base_dir = env_path = os.path.join(SITES_BASE_DIR, site.domain, ".env")
+        base_dir = os.path.join(SITES_BASE_DIR, site.domain)
         script = "app.py" if site.type == "python" else "index.js"  # Default logic
         # Kalau user udah punya package.json, logic start_app harusnya bisa nyesuain (nanti kita upgrade)
         start_app(site.domain, site.app_port, os.path.join(base_dir, script))
