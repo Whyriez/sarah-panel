@@ -28,3 +28,4 @@ class Site(Base):
 
     startup_command = Column(String, nullable=True)
     webhook_token = Column(String, default=lambda: secrets.token_urlsafe(16))
+    framework = Column(String, default="native")  # native, laravel, wordpress, spa, proxy

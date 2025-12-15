@@ -34,10 +34,17 @@ project_models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="AlimPanel API", version="0.1.0")
 
 # --- CORS ---
-origins = ["http://localhost:3000", "http://127.0.0.1:3000", "*"]
+origins = [
+    "http://localhost:3000",      # Frontend Localhost
+    "http://127.0.0.1:3000",      # Frontend Localhost IP
+    "https://sarahpanel.limapp.my.id" # GANTI INI dengan domain panel frontend nanti
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
+    allow_origins=origins,  # Jangan pernah pakai ["*"] di production
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], # Batasi method juga kalau perlu
+    allow_headers=["*"],
 )
 
 # Auto Migrate Tabel Sites

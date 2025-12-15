@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Kita pakai SQLite file bernama 'sarahpanel.db'
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sarahpanel.db")
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
 
 # connect_args={"check_same_thread": False} itu wajib khusus buat SQLite
 engine = create_engine(

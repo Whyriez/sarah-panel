@@ -5,6 +5,7 @@ class SiteBase(BaseModel):
     domain: str
     type: str # php, node, python
     php_version: Optional[str] = "8.2" # Default PHP 8.2 jika type=php
+    framework: str = "native"
 
 class SiteCreate(SiteBase):
     pass

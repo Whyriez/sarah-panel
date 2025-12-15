@@ -78,6 +78,97 @@ def manage_queue_worker(
     subprocess.run(["pm2", "save"], check=True)
     return {"message": "Worker started"}
 
+
+def generate_nginx_config_internal(site_obj, root_path):
+    """
+    Fungsi ini menangani pembuatan file Nginx untuk semua tipe:
+    PHP (Native/Laravel/WP) dan Node/Python (Proxy).
+    """
+    nginx_path = f"/etc/nginx/sites-available/{site_obj.domain}"
+
+    # 1. Tentukan Block Location (Routing Rule)
+    location_block = ""
+
+    # Kita cek site.type atau site.framework (jika sudah ditambahkan di schemas)
+    # Disini kita pakai logika: jika type="laravel" atau "wordpress", handle routingnya.
+    # Jika Anda belum ubah schemas, kita anggap type="php" default native,
+    # tapi nanti bisa kita update manual di DB.
+
+    # CASE A: LARAVEL / WORDPRESS
+    # (Asumsi: Anda akan kirim type="laravel" atau "wordpress" dari frontend,
+    # atau type="php" tapi ada field framework. Disini saya support jika type="laravel")
+    if site_obj.type in ["laravel", "wordpress"]:
+        location_block = """
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }"""
+
+    # CASE B: SPA (React/Vue Build)
+    elif site_obj.type == "spa":
+        location_block = """
+    location / {
+        try_files $uri $uri/ /index.html;
+    }"""
+
+    # CASE C: PROXY (Node / Python)
+    elif site_obj.type in ["node", "python"]:
+        location_block = f"""
+    location / {{
+        proxy_pass http://127.0.0.1:{site_obj.app_port};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }}"""
+
+    # CASE D: DEFAULT PHP / HTML STATIC
+    else:
+        location_block = """
+    location / {
+        try_files $uri $uri/ =404;
+    }"""
+
+    # 2. Config PHP Block (Untuk PHP, Laravel, Wordpress)
+    php_block = ""
+    if site_obj.type in ["php", "laravel", "wordpress"]:
+        # Default pakai PHP 8.1, sesuaikan logic jika ingin dinamis dari site_obj.php_version
+        php_ver = site_obj.php_version if site_obj.php_version else "8.1"
+        php_block = f"""
+    location ~ \.php$ {{
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php{php_ver}-fpm.sock; 
+    }}"""
+
+    # 3. Susun Config Lengkap
+    nginx_config = f"""
+server {{
+    listen 80;
+    server_name {site_obj.domain} www.{site_obj.domain};
+
+    root {root_path};
+    index index.php index.html index.htm; # Prioritas index
+
+    access_log /var/log/nginx/{site_obj.domain}_access.log;
+    error_log /var/log/nginx/{site_obj.domain}_error.log;
+
+    {location_block}
+
+    {php_block}
+
+    location ~ /\.ht {{
+        deny all;
+    }}
+}}
+"""
+    # 4. Tulis File Nginx
+    with open(nginx_path, "w") as f:
+        f.write(nginx_config)
+
+    # 5. Enable & Reload
+    if not os.path.exists(f"/etc/nginx/sites-enabled/{site_obj.domain}"):
+        os.symlink(nginx_path, f"/etc/nginx/sites-enabled/{site_obj.domain}")
+
+    os.system("systemctl reload nginx")
+
 # 1. GET ALL SITES
 @router.get("/", response_model=list[schemas.SiteResponse])
 def read_sites(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -90,19 +181,23 @@ def read_sites(db: Session = Depends(get_db), current_user: User = Depends(get_c
 @router.post("/", response_model=schemas.SiteResponse)
 def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db),
                 current_user: User = Depends(get_current_user)):
-    # Cek duplikasi domain (Global check, tetap harus unik satu server)
+    # 1. CEK DUPLIKASI DOMAIN
     existing_site = db.query(models.Site).filter(models.Site.domain == site.domain).first()
     if existing_site:
         raise HTTPException(status_code=400, detail="Domain already exists")
 
+    # 2. ASSIGN PORT (Hanya untuk Node/Python)
     assigned_port = None
     if site.type in ["node", "python"]:
         assigned_port = get_available_port(db)
 
+    # 3. SIMPAN KE DATABASE
+    # Perhatikan: Saya pakai 'new_site' sesuai variabel anda
     new_site = models.Site(
         domain=site.domain,
         type=site.type,
-        php_version=site.php_version if site.type == "php" else None,  # Simpan versi PHP
+        # Jika type="laravel", kita anggap php_version perlu disimpan juga
+        php_version=site.php_version if site.type in ["php", "laravel", "wordpress"] else None,
         user_id=current_user.id,
         app_port=assigned_port,
         startup_command=site.startup_command if hasattr(site, 'startup_command') else None
@@ -112,43 +207,52 @@ def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db),
     db.commit()
     db.refresh(new_site)
 
-    # 1. Buat Folder
+    # 4. BUAT FOLDER & FILE DUMMY
     base_dir = os.path.join(SITES_BASE_DIR, new_site.domain)
     os.makedirs(base_dir, exist_ok=True)
 
-    # 2. Buat File Dummy
-    script_filename = "app.py" if new_site.type == "python" else "index.js"
-    script_path = os.path.join(base_dir, script_filename)
-
-    if not os.path.exists(script_path):
-        with open(script_path, "w") as f:
-            if new_site.type == "python":
+    # File dummy (app.py / index.js / index.php)
+    if new_site.type == "python":
+        script_path = os.path.join(base_dir, "app.py")
+        if not os.path.exists(script_path):
+            with open(script_path, "w") as f:
                 f.write("# Dummy Python App\nprint('Hello AlimPanel')")
-            else:
-                f.write("// Dummy Node App\nconst http = require('http');\nconst server = http.createServer((req, res) => { res.writeHead(200); res.end('Hello SarahPanel!'); });\nserver.listen(process.env.PORT || 3000);")
-    else:
-        pass
 
-    if new_site.type in ["node", "python"]:
-        start_app(new_site.domain, new_site.app_port, base_dir, new_site.startup_command)
+    elif new_site.type == "node":
+        script_path = os.path.join(base_dir, "index.js")
+        if not os.path.exists(script_path):
+            with open(script_path, "w") as f:
+                f.write(
+                    "// Dummy Node App\nconst http = require('http');\nconst server = http.createServer((req, res) => { res.writeHead(200); res.end('Hello AlimPanel!'); });\nserver.listen(process.env.PORT || 3000);")
 
-    # 3. Start PM2 & Nginx
-    if site.type == "php":
+    elif new_site.type in ["php", "laravel", "wordpress"]:
+        # Khusus PHP Native kita buat index.php dummy.
+        # Kalau Laravel/WP biasanya user upload file sendiri nanti, tapi dummy oke juga.
         index_php = os.path.join(base_dir, "index.php")
         if not os.path.exists(index_php):
             with open(index_php, "w") as f:
-                f.write(f"<?php echo '<h1>Hello from PHP {site.php_version} on AlimPanel</h1>'; phpinfo(); ?>")
+                f.write(f"<?php echo '<h1>Hello from {new_site.type} on AlimPanel</h1>'; phpinfo(); ?>")
 
+    # 5. START APP (PM2) - Khusus Node/Python
     if new_site.type in ["node", "python"] and new_site.app_port:
+        script_filename = "app.py" if new_site.type == "python" else "index.js"
+        script_path_full = os.path.join(base_dir, script_filename)
+
         success, msg = start_app(
             domain=new_site.domain,
             port=new_site.app_port,
-            script_path=script_path
+            script_path=script_path_full
         )
-        if success:
-            create_nginx_config(new_site.domain, new_site.app_port, new_site.type)
-        else:
+        if not success:
             print(f"⚠️ Failed to start app: {msg}")
+
+    # 6. GENERATE NGINX CONFIG (INTEGRASI BARU DISINI)
+    # Ini akan menghandle semua tipe: Node, Python, PHP, Laravel, WP
+    try:
+        generate_nginx_config_internal(new_site, base_dir)
+    except Exception as e:
+        print(f"⚠️ Failed to generate Nginx: {e}")
+        # Opsional: raise HTTPException jika ingin user tau errornya
 
     return new_site
 
