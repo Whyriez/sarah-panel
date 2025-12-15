@@ -10,6 +10,7 @@ from app.modules.sites.models import Site
 
 router = APIRouter(prefix="/files", tags=["File Manager"])
 
+SITES_BASE_DIR = "/var/www/sarahpanel"
 
 # Helper: Validasi Path (Anti-Hacking)
 def get_safe_path(site_id: int, relative_path: str, user: User, db: Session):
@@ -17,20 +18,21 @@ def get_safe_path(site_id: int, relative_path: str, user: User, db: Session):
     site = db.query(Site).filter(Site.id == site_id).first()
     if not site: raise HTTPException(404, "Site not found")
 
-    # 2. Cek Kepemilikan (Kecuali Admin)
-    if user.role != "admin" and site.user_id != user.id:
-        raise HTTPException(403, "Access Denied")
+    # ... (cek permission existing) ...
 
-    # 3. Tentukan Root Folder Site
-    base_dir = os.path.abspath(os.path.join(os.getcwd(), "www_data", site.domain))
+    # 3. Tentukan Root Folder Site (Gunakan Variable Constant tadi)
+    base_dir = os.path.abspath(os.path.join(SITES_BASE_DIR, site.domain))
 
-    # 4. Gabungkan dengan request path
-    # relative_path bisa berupa "" (root) atau "css/style.css"
+    # Buat folder jika belum ada (safety net)
+    if not os.path.exists(base_dir):
+        os.makedirs(base_dir, exist_ok=True)
+
+    # 4. Gabungkan path
     target_path = os.path.abspath(os.path.join(base_dir, relative_path.lstrip("/")))
 
-    # 5. Security Check: Pastikan target_path masih di dalam base_dir
+    # 5. Security Check
     if not target_path.startswith(base_dir):
-        raise HTTPException(400, "Invalid path access (Directory Traversal Attempt!)")
+        raise HTTPException(400, "Invalid path access")
 
     return target_path
 

@@ -64,20 +64,26 @@ def start_app(domain: str, port: int, script_path: str, interpreter: str = "node
     if IS_WINDOWS:
         return run_command(command)
 
-    # Di Linux Beneran:
-    # Kita harus pass env variables
     env = os.environ.copy()
     env["PORT"] = str(port)
 
     try:
         subprocess.run(command, env=env, check=True)
+
+        # [FIX] SIMPAN STATE PM2 AGAR AUTO-START SETELAH REBOOT
+        subprocess.run(["pm2", "save"], check=False)
+
         return True, "App started"
     except Exception as e:
         return False, str(e)
 
 
 def delete_app(domain: str):
-    return run_command(["pm2", "delete", domain])
+    success, msg = run_command(["pm2", "delete", domain])
+    # [FIX] Simpan perubahan saat delete juga
+    if not IS_WINDOWS:
+        subprocess.run(["pm2", "save"], check=False)
+    return success, msg
 
 
 def reload_app(domain: str):

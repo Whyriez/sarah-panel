@@ -11,6 +11,9 @@ from app.modules.users.models import User
 from dotenv import dotenv_values
 import subprocess
 from pydantic import BaseModel
+import shutil
+
+SITES_BASE_DIR = "/var/www/sarahpanel"
 
 router = APIRouter(
     prefix="/sites",
@@ -63,7 +66,6 @@ def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db),
     # Jika tipe Node/Python, kita kasih port random/urut (nanti kita bikin logic canggihnya)
     assigned_port = None
     if site.type in ["node", "python"]:
-        # [FIX] Jangan hardcode 3000 lagi! Cari yang kosong.
         assigned_port = get_available_port(db)
 
     new_site = models.Site(
@@ -77,13 +79,11 @@ def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db),
     db.commit()
     db.refresh(new_site)
 
-    # 1. BUAT FOLDER WEBSITE
-    # Di Linux biasanya: /var/www/domain.com
-    # Di Windows Dev: backend/www/domain.com
-    base_dir = os.path.join(os.getcwd(), "www_data", new_site.domain)
-    os.makedirs(base_dir, exist_ok=True)
+    # 1. BUAT FOLDER WEBSITE (Gunakan Absolute Path Standar)
+    base_dir = os.path.join(SITES_BASE_DIR, new_site.domain)
+    os.makedirs(base_dir, exist_ok=True)  # Recursive create
 
-    # Buat file dummy 'index.js' atau 'app.py' biar gak kosong
+    # Buat file dummy
     script_filename = "app.py" if new_site.type == "python" else "index.js"
     script_path = os.path.join(base_dir, script_filename)
 
@@ -92,9 +92,10 @@ def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db),
             if new_site.type == "python":
                 f.write("# Dummy Python App\nprint('Hello AlimPanel')")
             else:
-                f.write("// Dummy Node App\nconsole.log('Hello AlimPanel');")
+                f.write(
+                    "// Dummy Node App\nconst http = require('http');\nconst server = http.createServer((req, res) => { res.writeHead(200); res.end('Hello SarahPanel!'); });\nserver.listen(process.env.PORT || 3000);")
 
-    # 2. JALANKAN VIA PM2 (Khusus Node/Python)
+    # 2. JALANKAN VIA PM2
     if new_site.type in ["node", "python"] and new_site.app_port:
         success, msg = start_app(
             domain=new_site.domain,
@@ -103,6 +104,9 @@ def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db),
         )
         if success:
             print(f"✅ App {new_site.domain} started on port {new_site.app_port}")
+
+            # [FIX: CRUCIAL] Buat Config Nginx agar domain bisa diakses!
+            create_nginx_config(new_site.domain, new_site.app_port, new_site.type)
         else:
             print(f"⚠️ Failed to start app: {msg}")
 
@@ -116,17 +120,24 @@ def delete_site(site_id: int, db: Session = Depends(get_db), current_user: User 
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
 
-    # 2. Hapus Process PM2 (Kalau ada)
+    # 2. Hapus Process PM2
     if site.type in ["node", "python"]:
         delete_app(site.domain)
 
-    # 3. Hapus Config Nginx (Simulasi hapus file)
-    # (Di Windows hapus file di generated_configs)
-    conf_path = os.path.join(os.getcwd(), "generated_configs", f"{site.domain}.conf")
-    if os.path.exists(conf_path):
-        os.remove(conf_path)
+    # 3. Hapus Config Nginx
+    delete_nginx_config(site.domain) # Gunakan fungsi yang sudah ada di nginx_manager
 
-    # 4. Hapus dari Database
+    # [FIX] 4. Hapus Folder File Website Secara Fisik
+    # Pastikan variable SITES_BASE_DIR = "/var/www/sarahpanel" sudah didefine (lihat jawaban sebelumnya)
+    site_path = os.path.join(SITES_BASE_DIR, site.domain)
+    if os.path.exists(site_path):
+        try:
+            shutil.rmtree(site_path) # Hapus folder beserta isinya
+            print(f"🗑️ Deleted folder: {site_path}")
+        except Exception as e:
+            print(f"⚠️ Failed to delete folder: {e}")
+
+    # 5. Hapus dari Database
     db.delete(site)
     db.commit()
 

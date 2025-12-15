@@ -2,8 +2,8 @@ import os
 import platform
 import subprocess
 
-# Template Config untuk Reverse Proxy (Node.js / Python)
-NGINX_PROXY_TEMPLATE = """
+# Template HTTP (Standar)
+NGINX_HTTP_TEMPLATE = """
 server {{
     listen 80;
     server_name {domain};
@@ -16,12 +16,36 @@ server {{
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }}
+}}
+"""
 
-    # Log files
-    access_log /var/log/nginx/{domain}_access.log;
-    error_log /var/log/nginx/{domain}_error.log;
+# [FIX] Template HTTPS (Jika SSL terdeteksi)
+NGINX_HTTPS_TEMPLATE = """
+server {{
+    listen 80;
+    server_name {domain};
+    return 301 https://$host$request_uri;
+}}
+
+server {{
+    listen 443 ssl http2;
+    server_name {domain};
+
+    ssl_certificate /etc/letsencrypt/live/{domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{domain}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    location / {{
+        proxy_pass http://127.0.0.1:{port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+    }}
 }}
 """
 
@@ -42,35 +66,34 @@ def reload_nginx():
 
 
 def create_nginx_config(domain: str, port: int, type: str):
-    """
-    Membuat file konfigurasi Nginx.
-    """
     if platform.system() == "Windows":
-        print(f"🖥️ [WINDOWS] Simulasi Config Nginx untuk {domain} port {port}")
         return
-
-    # --- LINUX LOGIC ---
-    config_content = NGINX_PROXY_TEMPLATE.format(domain=domain, port=port)
 
     config_path = f"/etc/nginx/sites-available/{domain}"
     symlink_path = f"/etc/nginx/sites-enabled/{domain}"
 
+    # [FIX] Cek apakah User sudah punya SSL dari Certbot?
+    ssl_path = f"/etc/letsencrypt/live/{domain}/fullchain.pem"
+    has_ssl = os.path.exists(ssl_path)
+
     try:
-        # 1. Tulis File Config
+        # Pilih Template yang sesuai
+        if has_ssl:
+            print(f"🔒 SSL Detected for {domain}, generating HTTPS config...")
+            config_content = NGINX_HTTPS_TEMPLATE.format(domain=domain, port=port)
+        else:
+            config_content = NGINX_HTTP_TEMPLATE.format(domain=domain, port=port)
+
+        # Tulis File
         with open(config_path, "w") as f:
             f.write(config_content)
 
-        # 2. Buat Symlink (Shortcut) kalau belum ada
         if not os.path.exists(symlink_path):
             os.symlink(config_path, symlink_path)
 
-        print(f"✅ Nginx Config created for {domain}")
-
-        # 3. Reload Nginx
         reload_nginx()
+        print(f"✅ Nginx Config updated for {domain}")
 
-    except PermissionError:
-        print("❌ Permission Denied! Pastikan menjalankan Backend dengan 'sudo' di Linux.")
     except Exception as e:
         print(f"❌ Failed creating Nginx config: {e}")
 
