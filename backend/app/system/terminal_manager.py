@@ -2,7 +2,6 @@ import os
 import platform
 import asyncio
 
-# Cek OS
 IS_WINDOWS = platform.system() == "Windows"
 
 if IS_WINDOWS:
@@ -13,43 +12,54 @@ else:
     import struct
     import termios
 
+
 class TerminalManager:
     def __init__(self):
         self.os_type = "windows" if IS_WINDOWS else "linux"
 
-    def spawn_terminal(self):
+    def spawn_terminal(self, cwd=None):
         """
         Melahirkan process terminal baru.
-        Windows -> cmd.exe
-        Linux -> /bin/bash
+        cwd: Current Working Directory (folder awal terminal)
         """
+        # Default cwd jika tidak ada
+        if not cwd or not os.path.exists(cwd):
+            cwd = os.getcwd()  # Atau home directory user
+
         if self.os_type == "windows":
-            # Spawn CMD
-            proc = PtyProcess.spawn(["cmd.exe"])
+            # Windows: PtyProcess support argument cwd
+            proc = PtyProcess.spawn(["cmd.exe"], cwd=cwd)
             return proc
         else:
-            # Spawn Bash (Linux Logic)
+            # Linux: Perlu os.chdir() di child process
             master_fd, slave_fd = pty.openpty()
             pid = os.fork()
             if pid == 0:
+                # Child Process
                 os.setsid()
                 os.dup2(slave_fd, 0)
                 os.dup2(slave_fd, 1)
                 os.dup2(slave_fd, 2)
                 os.close(master_fd)
                 os.close(slave_fd)
+
+                # [FIX] Pindah ke directory tujuan sebelum spawn bash
+                try:
+                    os.chdir(cwd)
+                except:
+                    pass  # Kalau gagal, tetep jalan di default dir
+
+                # Set Environment variable biar terminal tau ini xterm
+                os.environ["TERM"] = "xterm-256color"
                 os.execv("/bin/bash", ["/bin/bash"])
             else:
+                # Parent Process
                 os.close(slave_fd)
-                return master_fd # Return File Descriptor
+                return master_fd
 
     async def read_stream(self, fd, websocket):
-        """
-        Membaca output dari terminal -> Kirim ke WebSocket (Frontend)
-        """
         if self.os_type == "windows":
             while True:
-                # Windows (pywinpty)
                 try:
                     output = await asyncio.to_thread(fd.read, 1024)
                     if output:
@@ -59,7 +69,6 @@ class TerminalManager:
                 except Exception:
                     break
         else:
-            # Linux (Native PTY)
             while True:
                 await asyncio.sleep(0.01)
                 try:
@@ -70,33 +79,20 @@ class TerminalManager:
                     break
 
     async def write_stream(self, fd, data):
-        """
-        Menerima input dari WebSocket (Ketik user) -> Tulis ke Terminal
-        """
         if self.os_type == "windows":
             await asyncio.to_thread(fd.write, data)
         else:
             os.write(fd, data.encode())
 
     def resize_terminal(self, fd, cols: int, rows: int):
-        """
-        Mengubah ukuran terminal agar sinkron dengan browser.
-        """
         if self.os_type == "windows":
             try:
-                # [FIX FINAL] Kembalikan ke urutan standar: (rows, cols)
-                # rows = Tinggi (misal 24)
-                # cols = Lebar (misal 100)
                 fd.setwinsize(rows, cols)
             except Exception as e:
-                print(f"Resize Error (Windows): {e}")
+                print(f"Resize Error: {e}")
         else:
-            # Linux Logic (Tetap aman)
-            import fcntl
-            import struct
-            import termios
             try:
                 winsize = struct.pack("HHHH", rows, cols, 0, 0)
                 fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
             except Exception as e:
-                print(f"Resize Error (Linux): {e}")
+                print(f"Resize Error: {e}")

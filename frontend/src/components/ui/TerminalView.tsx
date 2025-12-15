@@ -5,7 +5,8 @@ import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 
-export default function TerminalView() {
+// [BARU] Terima props siteId (opsional)
+export default function TerminalView({ siteId }: { siteId?: string }) {
     const terminalRef = useRef<HTMLDivElement>(null);
     const wsRef = useRef<WebSocket | null>(null);
 
@@ -34,16 +35,18 @@ export default function TerminalView() {
             }, 100);
         }
 
-        // 2. Konek ke WebSocket (FIX URL biar jalan di VPS)
+        // 2. Konek ke WebSocket
         const token = localStorage.getItem('token');
-
-        // Ambil URL Backend dari ENV atau default localhost
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        // Ubah http/https menjadi ws/wss
         const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
-        const wsUrl = `${wsBaseUrl}/ws/terminal?token=${token}`;
 
-        console.log("Connecting Terminal to:", wsUrl); // Debugging
+        // [BARU] Tambahkan site_id ke Query Param jika ada
+        let wsUrl = `${wsBaseUrl}/ws/terminal?token=${token}`;
+        if (siteId) {
+            wsUrl += `&site_id=${siteId}`;
+        }
+
+        console.log("Connecting Terminal to:", wsUrl);
 
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
@@ -71,7 +74,6 @@ export default function TerminalView() {
             term.write(event.data);
         };
 
-        // Saat ngetik, bungkus jadi JSON
         term.onData((data) => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
@@ -81,19 +83,17 @@ export default function TerminalView() {
             }
         });
 
-        // Handle Window Resize
         const handleResize = () => {
             sendResize();
         };
         window.addEventListener('resize', handleResize);
 
-        // Cleanup
         return () => {
             ws.close();
             term.dispose();
             window.removeEventListener('resize', handleResize);
         };
-    }, []);
+    }, [siteId]); // [PENTING] Re-run jika siteId berubah
 
     return (
         <div className="h-[calc(100vh-100px)] flex flex-col bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
@@ -102,7 +102,9 @@ export default function TerminalView() {
                     <div className="w-3 h-3 rounded-full bg-red-500"></div>
                     <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
                     <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                    <span className="ml-2 text-xs text-slate-400 font-mono">root@server:~</span>
+                    <span className="ml-2 text-xs text-slate-400 font-mono">
+                        {siteId ? `site-${siteId}@server:~/www` : 'root@server:~'}
+                    </span>
                 </div>
                 <div className="text-xs text-slate-500">WebSocket SSH</div>
             </div>

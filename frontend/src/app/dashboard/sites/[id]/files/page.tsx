@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import api from '@/lib/api';
-import { Folder, FileText, ArrowLeft, Save, Upload, Trash2, Home } from 'lucide-react';
+import { Folder, FileText, ArrowLeft, Save, Upload, Trash2, Home, FilePlus, FolderPlus, Edit3 } from 'lucide-react';
 
 export default function FileManagerPage() {
     const { id } = useParams();
@@ -17,10 +17,9 @@ export default function FileManagerPage() {
 
     const fetchFiles = async () => {
         try {
-            const token = localStorage.getItem('token');
+            // [FIX] Gunakan encodeURIComponent untuk path
             const res = await api.get(`/files/list/${id}`, {
-                params: { path },
-                headers: { Authorization: `Bearer ${token}` }
+                params: { path: path }
             });
             setItems(res.data);
         } catch (err) { console.error(err); }
@@ -46,15 +45,50 @@ export default function FileManagerPage() {
         setPath(parts.join('/'));
     };
 
+    // --- FITUR BARU: CREATE & RENAME ---
+
+    const handleCreate = async (type: 'file' | 'folder') => {
+        const name = prompt(`Enter new ${type} name:`);
+        if (!name) return;
+
+        try {
+            await api.post(`/files/create/${id}`, {
+                path: path,
+                name: name,
+                type: type
+            });
+            fetchFiles();
+        } catch (err: any) {
+            alert(err.response?.data?.detail || "Failed to create");
+        }
+    };
+
+    const handleRename = async (e: React.MouseEvent, oldName: string) => {
+        e.stopPropagation(); // Biar gak masuk folder pas klik rename
+        const newName = prompt("Enter new name:", oldName);
+        if (!newName || newName === oldName) return;
+
+        try {
+            await api.put(`/files/rename/${id}`, {
+                path: path,
+                old_name: oldName,
+                new_name: newName
+            });
+            fetchFiles();
+        } catch (err: any) {
+            alert(err.response?.data?.detail || "Failed to rename");
+        }
+    };
+
+    // ------------------------------------
+
     // Editor Logic
     const openEditor = async (filename: string) => {
         const filePath = path ? `${path}/${filename}` : filename;
         setLoading(true);
         try {
-            const token = localStorage.getItem('token');
             const res = await api.get(`/files/content/${id}`, {
-                params: { path: filePath },
-                headers: { Authorization: `Bearer ${token}` }
+                params: { path: filePath }
             });
             setFileContent(res.data.content);
             setEditingFile(filePath);
@@ -65,11 +99,7 @@ export default function FileManagerPage() {
     const saveFile = async () => {
         setLoading(true);
         try {
-            const token = localStorage.getItem('token');
-            await api.post(`/files/save/${id}`,
-                { path: editingFile, content: fileContent },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            await api.post(`/files/save/${id}`, { path: editingFile, content: fileContent });
             alert("File Saved!");
             setEditingFile(null); // Close editor
         } catch (err) { alert("Failed to save"); }
@@ -82,44 +112,39 @@ export default function FileManagerPage() {
         if (!file) return;
 
         const formData = new FormData();
-        // Ingat: path kita kirim lewat URL, file lewat Body
         formData.append('file', file);
 
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-
-            // [SOLUSI] Pakai fetch bawaan browser (Bukan api.post)
-            // Ganti URL 'http://localhost:8000' sesuai port backend Abang
-            const backendUrl = 'http://localhost:8000';
-
-            // Encode path biar aman kalau ada spasi (misal: "assets/img baru")
+            // Ambil URL dari ENV agar dinamis
+            const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
             const safePath = encodeURIComponent(path || "");
+
+            // Hapus /api di akhir backendUrl jika ada (untuk fetch manual)
+            // Tapi karena endpointmu /api/files/upload, kita asumsikan backendUrl sudah termasuk /api
+            // Cek api.ts kamu: const API_URL = .../api (biasanya)
+            // Jadi kita pakai API_URL langsung kalau bisa, tapi pakai fetch manual biar aman Multipart-nya
 
             const response = await fetch(`${backendUrl}/files/upload/${id}?path=${safePath}`, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    // JANGAN SET CONTENT-TYPE SAMA SEKALI DI SINI!
-                    // Browser akan otomatis set: multipart/form-data; boundary=----WebKit...
-                },
+                headers: { 'Authorization': `Bearer ${token}` },
                 body: formData
             });
 
             if (!response.ok) {
-                // Kalau gagal, baca pesan error dari backend
                 const errorData = await response.json();
                 throw new Error(JSON.stringify(errorData.detail));
             }
 
             alert("Upload Success!");
-            fetchFiles(); // Refresh list
+            fetchFiles();
         } catch (err: any) {
             console.error(err);
             alert("Upload failed:\n" + err.message);
         } finally {
             setLoading(false);
-            e.target.value = null; // Reset input
+            e.target.value = null;
         }
     };
 
@@ -127,16 +152,14 @@ export default function FileManagerPage() {
         if(!confirm(`Delete ${itemName}?`)) return;
         const itemPath = path ? `${path}/${itemName}` : itemName;
         try {
-            const token = localStorage.getItem('token');
             await api.delete(`/files/delete/${id}`, {
-                params: { path: itemPath },
-                headers: { Authorization: `Bearer ${token}` }
+                params: { path: itemPath }
             });
             fetchFiles();
         } catch (err) { alert("Delete failed"); }
     };
 
-    // --- RENDER EDITOR VIEW ---
+    // --- RENDER EDITOR ---
     if (editingFile) {
         return (
             <div className="h-[calc(100vh-100px)] flex flex-col">
@@ -158,20 +181,29 @@ export default function FileManagerPage() {
         );
     }
 
-    // --- RENDER FILE LIST VIEW ---
+    // --- RENDER LIST ---
     return (
         <div>
             <h2 className="text-2xl font-bold text-white mb-6">File Manager</h2>
 
             {/* Toolbar */}
-            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 mb-6 flex justify-between items-center">
-                <div className="flex items-center gap-2 text-slate-400 font-mono text-sm">
+            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 mb-6 flex flex-wrap justify-between items-center gap-4">
+                <div className="flex items-center gap-2 text-slate-400 font-mono text-sm overflow-hidden text-ellipsis whitespace-nowrap max-w-[50%]">
                     <button onClick={() => setPath('')} className="hover:text-white"><Home size={16}/></button>
                     <span>/</span>
                     <span>{path}</span>
                 </div>
                 <div className="flex gap-2">
-                    <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2">
+                    {/* Tombol New Folder */}
+                    <button onClick={() => handleCreate('folder')} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2 transition-colors">
+                        <FolderPlus size={16}/> New Folder
+                    </button>
+                    {/* Tombol New File */}
+                    <button onClick={() => handleCreate('file')} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2 transition-colors">
+                        <FilePlus size={16}/> New File
+                    </button>
+                    {/* Tombol Upload */}
+                    <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2 transition-colors">
                         <Upload size={16}/> Upload
                         <input type="file" className="hidden" onChange={handleUpload}/>
                     </label>
@@ -179,7 +211,7 @@ export default function FileManagerPage() {
             </div>
 
             {/* List */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden min-h-[400px]">
                 {path && (
                     <div
                         onClick={goUp}
@@ -192,7 +224,7 @@ export default function FileManagerPage() {
                 {items.map((item, idx) => (
                     <div
                         key={idx}
-                        className="px-6 py-3 border-b border-slate-800 hover:bg-slate-800/50 flex justify-between items-center group"
+                        className="px-6 py-3 border-b border-slate-800 hover:bg-slate-800/50 flex justify-between items-center group transition-colors"
                     >
                         <div
                             onClick={() => handleOpen(item)}
@@ -204,20 +236,33 @@ export default function FileManagerPage() {
                                 <FileText className="text-blue-400" size={20}/>
                             )}
                             <span className={`text-sm ${item.type === 'folder' ? 'text-white font-medium' : 'text-slate-300'}`}>
-                          {item.name}
-                      </span>
+                                {item.name}
+                            </span>
                         </div>
 
-                        <div className="text-slate-500 text-xs font-mono mr-4">
-                            {item.type === 'file' && (item.size / 1024).toFixed(1) + ' KB'}
-                        </div>
+                        <div className="flex items-center gap-4">
+                            <span className="text-slate-500 text-xs font-mono hidden sm:block">
+                                {item.type === 'file' && (item.size / 1024).toFixed(1) + ' KB'}
+                            </span>
 
-                        <button
-                            onClick={() => handleDelete(item.name)}
-                            className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                            <Trash2 size={16}/>
-                        </button>
+                            {/* Tombol Rename */}
+                            <button
+                                onClick={(e) => handleRename(e, item.name)}
+                                className="text-slate-600 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Rename"
+                            >
+                                <Edit3 size={16}/>
+                            </button>
+
+                            {/* Tombol Delete */}
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleDelete(item.name); }}
+                                className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Delete"
+                            >
+                                <Trash2 size={16}/>
+                            </button>
+                        </div>
                     </div>
                 ))}
                 {items.length === 0 && (

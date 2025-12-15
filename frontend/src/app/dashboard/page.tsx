@@ -18,7 +18,7 @@ export default function DashboardPage() {
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const res = await api.get('/api/monitor');
+                const res = await api.get('/monitor');
                 setStats(res.data.data);
             } catch (error) {
                 console.error("Gagal fetch monitor:", error);
