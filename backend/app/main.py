@@ -23,9 +23,13 @@ from app.modules.cron import models as cron_models
 from app.modules.cron.router import router as cron_router
 from app.system.cron_manager import start_scheduler, reload_jobs_from_db
 from app.core.database import SessionLocal # Perlu ini buat load awal
+from app.modules.projects import models as project_models
+from app.modules.projects.router import router as project_router
 
 # --- AUTO MIGRATE (Buat tabel kalau belum ada) ---
 user_models.Base.metadata.create_all(bind=engine)
+cron_models.Base.metadata.create_all(bind=engine)
+project_models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AlimPanel API", version="0.1.0")
 
@@ -53,6 +57,7 @@ app.include_router(market_router)
 app.include_router(git_router)
 app.include_router(backup_router)
 app.include_router(cron_router)
+app.include_router(project_router)
 
 @app.on_event("startup")
 def startup_event():
