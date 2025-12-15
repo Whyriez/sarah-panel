@@ -73,7 +73,7 @@ def startup_event():
 def read_root():
     return {"message": "SarahPanel API is Ready!"}
 
-@app.get("/api/monitor")
+@app.get("/monitor")
 def get_monitor_data():
     data = get_system_stats()
     return {"status": "success", "data": data}
