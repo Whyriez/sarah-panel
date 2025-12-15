@@ -188,6 +188,12 @@ pm2 delete alimpanel-ui 2>/dev/null || true
 pm2 start npm --name "alimpanel-ui" -- start
 cd ..
 
+pm2 install pm2-logrotate
+# Config: Putar log setiap hari, simpan max 7 file, compress
+pm2 set pm2-logrotate:max_size 100M
+pm2 set pm2-logrotate:retain 7
+pm2 set pm2-logrotate:compress true
+
 # [FIX] Setup PM2 Startup Script agar otomatis jalan pas reboot
 echo "⚙️ Configuring PM2 Startup..."
 # Ini akan mendeteksi sistem init (systemd) dan menjalankannya
