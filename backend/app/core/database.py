@@ -6,12 +6,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Kita pakai SQLite file bernama 'sarahpanel.db'
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
 
-# connect_args={"check_same_thread": False} itu wajib khusus buat SQLite
+# Siapkan connect_args kosong sebagai default
+connect_args = {}
+
+# Cek apakah URL database menggunakan SQLite
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+    # connect_args={"check_same_thread": False} itu wajib khusus buat SQLite
+    connect_args = {"check_same_thread": False}
+
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    SQLALCHEMY_DATABASE_URL,
+    connect_args=connect_args  # Gunakan variabel connect_args yang sudah disesuaikan
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
