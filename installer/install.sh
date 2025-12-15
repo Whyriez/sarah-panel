@@ -17,6 +17,23 @@ echo "📦 Updating System..."
 apt update && apt upgrade -y
 apt install -y python3-pip python3-venv nginx git mariadb-server curl unzip certbot python3-certbot-nginx
 
+# [BARU] Tambahkan Repository PHP Ondrej (Standar Industri)
+echo "🐘 Adding PHP Repository..."
+apt install -y software-properties-common
+add-apt-repository ppa:ondrej/php -y
+apt update
+
+# Install Versi PHP Populer (7.4, 8.0, 8.1, 8.2) + Modules Standard
+# Kita install FPM (FastCGI Process Manager) karena Nginx butuh ini
+for version in 7.4 8.0 8.1 8.2; do
+    echo "📦 Installing PHP $version..."
+    apt install -y php$version-fpm php$version-mysql php$version-common php$version-curl php$version-xml php$version-zip php$version-gd php$version-mbstring php$version-bcmath
+    
+    # Pastikan service jalan
+    systemctl enable php$version-fpm
+    systemctl start php$version-fpm
+done
+
 # 2. INSTALL NODE.JS (Versi 20 LTS)
 echo "📦 Installing Node.js..."
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
