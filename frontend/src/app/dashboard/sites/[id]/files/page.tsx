@@ -3,17 +3,21 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import api from '@/lib/api';
-import { Folder, FileText, ArrowLeft, Save, Upload, Trash2, Home, FilePlus, FolderPlus, Edit3 } from 'lucide-react';
+import { Folder, FileText, ArrowLeft, Save, Upload, Trash2, Home, FilePlus, FolderPlus, Edit3, Terminal, X } from 'lucide-react';
+import TerminalView from '@/components/ui/TerminalView';
 
 export default function FileManagerPage() {
     const { id } = useParams();
     const [path, setPath] = useState(''); // Current path (relative)
     const [items, setItems] = useState<any[]>([]);
 
+
     // Editor State
     const [editingFile, setEditingFile] = useState<string | null>(null);
     const [fileContent, setFileContent] = useState('');
+    const [showTerminal, setShowTerminal] = useState(false);
     const [loading, setLoading] = useState(false);
+
 
     const fetchFiles = async () => {
         try {
@@ -202,6 +206,12 @@ export default function FileManagerPage() {
                     <button onClick={() => handleCreate('file')} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2 transition-colors">
                         <FilePlus size={16}/> New File
                     </button>
+                    <button
+                        onClick={() => setShowTerminal(true)}
+                        className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2 transition-colors border border-slate-700"
+                    >
+                        <Terminal size={16}/> Terminal
+                    </button>
                     {/* Tombol Upload */}
                     <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2 transition-colors">
                         <Upload size={16}/> Upload
@@ -269,6 +279,33 @@ export default function FileManagerPage() {
                     <div className="p-8 text-center text-slate-500">Folder Empty</div>
                 )}
             </div>
+
+            {showTerminal && (
+                <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="w-full max-w-6xl relative">
+                        {/* Header Modal */}
+                        <div className="flex justify-between items-center mb-2 bg-slate-900/80 p-2 rounded-t-xl border-x border-t border-slate-700">
+                            <h3 className="text-white font-mono flex items-center gap-2 px-2">
+                                <Terminal size={18} className="text-green-500"/>
+                                Quick Terminal
+                            </h3>
+                            <button
+                                onClick={() => setShowTerminal(false)}
+                                className="text-slate-400 hover:text-white hover:bg-red-600/20 p-1.5 rounded transition-all"
+                            >
+                                <X size={20}/>
+                            </button>
+                        </div>
+
+                        {/* Component TerminalView */}
+                        {/* Kita bungkus div agar styling internal TerminalView tidak 'jebol' */}
+                        <div className="bg-slate-950 rounded-b-xl overflow-hidden border border-slate-700 shadow-2xl">
+                            {/* Pastikan id dikirim sebagai string (handle array case dari Next.js) */}
+                            <TerminalView siteId={Array.isArray(id) ? id[0] : id} />
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -132,6 +132,17 @@ alimpanel ALL=(root) NOPASSWD: /usr/bin/systemctl restart php*-fpm
 alimpanel ALL=(root) NOPASSWD: /usr/bin/systemctl start php*-fpm
 alimpanel ALL=(root) NOPASSWD: /usr/bin/systemctl enable php*-fpm
 alimpanel ALL=(root) NOPASSWD: /usr/bin/apt-get install -y php*
+alimpanel ALL=(root) NOPASSWD: /usr/bin/apt-get remove -y php*
+alimpanel ALL=(root) NOPASSWD: /usr/bin/apt-get update
+alimpanel ALL=(root) NOPASSWD: /usr/bin/apt-get autoremove -y
+EOF
+
+cat >> /etc/sudoers.d/alimpanel <<EOF
+# Izin membuat config pool PHP
+alimpanel ALL=(root) NOPASSWD: /usr/bin/tee /etc/php/*/fpm/pool.d/*
+
+# (Opsional) Izin hapus config pool jika nanti bikin fitur disable/delete
+alimpanel ALL=(root) NOPASSWD: /usr/bin/rm /etc/php/*/fpm/pool.d/*
 EOF
 
 # 6. SETUP NGINX UTAMA (Admin Panel Only)

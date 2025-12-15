@@ -117,7 +117,7 @@ def reload_nginx():
         print(f"❌ Nginx Reload Failed: {e}")
 
 
-def create_nginx_config(domain: str, port: int, type: str, php_version: str = "8.2"):
+def create_nginx_config(domain: str, port: int, type: str, php_version: str = "8.2", custom_socket: str = None):
     if platform.system() == "Windows":
         return
 
@@ -126,7 +126,6 @@ def create_nginx_config(domain: str, port: int, type: str, php_version: str = "8
 
     # Cek SSL
     ssl_path = f"/etc/letsencrypt/live/{domain}/fullchain.pem"
-    # Logic cek file exist dengan sudo (seperti fix sebelumnya)
     has_ssl = subprocess.run(["sudo", "test", "-f", ssl_path], capture_output=True).returncode == 0
 
     try:
@@ -139,15 +138,22 @@ def create_nginx_config(domain: str, port: int, type: str, php_version: str = "8
                 config_content = NGINX_PHP_HTTPS_TEMPLATE.format(domain=domain, php_version=php_version)
             else:
                 config_content = NGINX_PHP_TEMPLATE.format(domain=domain, php_version=php_version)
+
+            # [MODIFIKASI: Replace Socket Default dengan Custom Socket]
+            if custom_socket:
+                default_socket = f"unix:/run/php/php{php_version}-fpm.sock"
+                target_socket = f"unix:{custom_socket}"
+                config_content = config_content.replace(default_socket, target_socket)
+                print(f"🔌 Using Custom Socket: {target_socket}")
+
         else:
             # Pakai template Node/Python (Proxy Pass)
+            # Pastikan import template ini benar di kode asli Anda
+            from app.system.nginx_manager import NGINX_HTTPS_TEMPLATE, NGINX_HTTP_TEMPLATE
+
             if has_ssl:
-                # Gunakan template HTTPS Node/Python yg lama
-                # (Pastikan template HTTPS lama diimport/ada di file ini)
-                from app.system.nginx_manager import NGINX_HTTPS_TEMPLATE
                 config_content = NGINX_HTTPS_TEMPLATE.format(domain=domain, port=port)
             else:
-                from app.system.nginx_manager import NGINX_HTTP_TEMPLATE
                 config_content = NGINX_HTTP_TEMPLATE.format(domain=domain, port=port)
 
         # Tulis File (Pakai sudo tee)

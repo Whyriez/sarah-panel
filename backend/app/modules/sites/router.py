@@ -273,3 +273,91 @@ def update_php_version(
     # subprocess.run(["sudo", "systemctl", "restart", f"php{site.php_version}-fpm"], check=False)
 
     return {"message": f"Switched to PHP {site.php_version}"}
+
+
+@router.post("/{site_id}/enable-dedicated-pool")
+def enable_dedicated_pool(
+        site_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Fitur 'Laravel/Pro Mode':
+    Otomatis membuat Dedicated PHP-FPM Pool untuk website ini.
+    Efek: 'disable_functions' dikosongkan (Exec, Symlink, dll bisa jalan).
+    """
+    # 1. Ambil Data Site & Validasi Kepemilikan
+    site = get_user_site(site_id, current_user.id, db)
+
+    if site.type != 'php':
+        raise HTTPException(400, "Only for PHP sites")
+
+    # 2. Siapkan Variabel
+    php_ver = site.php_version or "8.2"
+    # Nama pool aman (ganti titik jadi underscore)
+    pool_name = site.domain.replace('.', '_')
+
+    # Path Config Pool (contoh: /etc/php/8.2/fpm/pool.d/domain.com.conf)
+    conf_file = f"/etc/php/{php_ver}/fpm/pool.d/{site.domain}.conf"
+
+    # Path Socket Baru (contoh: /run/php/php8.2-fpm-domain.com.sock)
+    socket_file = f"/run/php/php{php_ver}-fpm-{site.domain}.sock"
+
+    # 3. Template Konfigurasi Pool (Open Security)
+    # Perhatikan: disable_functions = "" (KOSONG) artinya semua fungsi boleh dipakai
+    pool_config = f"""
+[{pool_name}]
+user = alimpanel
+group = alimpanel
+
+listen = {socket_file}
+listen.owner = www-data
+listen.group = www-data
+listen.mode = 0660
+
+pm = dynamic
+pm.max_children = 10
+pm.start_servers = 2
+pm.min_spare_servers = 1
+pm.max_spare_servers = 3
+
+; SECURITY OVERRIDE
+; Unblock semua fungsi berbahaya untuk user ini
+php_admin_value[disable_functions] = ""
+php_admin_flag[allow_url_fopen] = on
+; Limit memory custom (opsional)
+php_admin_value[memory_limit] = 256M
+"""
+
+    try:
+        print(f"⚙️ Creating Dedicated Pool for {site.domain}...")
+
+        # 4. Tulis File Conf (Memerlukan izin sudo tee ke folder /etc/php/...)
+        subprocess.run(
+            ["sudo", "tee", conf_file],
+            input=pool_config, text=True, check=True
+        )
+
+        # 5. Restart PHP-FPM (Agar pool baru aktif)
+        subprocess.run(["sudo", "systemctl", "restart", f"php{php_ver}-fpm"], check=True)
+
+        # 6. Update Nginx agar mengarah ke Socket Baru
+        create_nginx_config(
+            domain=site.domain,
+            port=0,
+            type="php",
+            php_version=php_ver,
+            custom_socket=socket_file  # Gunakan socket baru
+        )
+
+        return {
+            "message": f"Dedicated Pool activated for {site.domain}!",
+            "details": "Exec & Symlink enabled. Socket updated."
+        }
+
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Subprocess Error: {e}")
+        raise HTTPException(500, detail="Failed to configure system files. Check server logs.")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        raise HTTPException(500, detail=str(e))

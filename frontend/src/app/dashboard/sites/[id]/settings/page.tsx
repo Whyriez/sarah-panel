@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import api from '@/lib/api';
-import {ShieldCheck, Key, Plus, Trash, Save, Loader2, Settings, RefreshCw} from 'lucide-react';
+// [UPDATE] Tambahkan icon Zap (Petir) dan Terminal
+import { ShieldCheck, Key, Plus, Trash, Save, Loader2, Settings, RefreshCw, Zap, Terminal } from 'lucide-react';
 
 export default function SettingsPage() {
     const { id } = useParams();
@@ -43,7 +44,7 @@ export default function SettingsPage() {
     );
 }
 
-// --- SUB COMPONENT: ENV MANAGER (Sama seperti sebelumnya) ---
+// --- SUB COMPONENT: ENV MANAGER (Tidak Berubah) ---
 function EnvManager({ siteId }: { siteId: any }) {
     const [envs, setEnvs] = useState<{key: string, value: string}[]>([]);
 
@@ -113,7 +114,7 @@ function EnvManager({ siteId }: { siteId: any }) {
     );
 }
 
-// --- SUB COMPONENT: SSL MANAGER (Sama seperti sebelumnya) ---
+// --- SUB COMPONENT: SSL MANAGER (Tidak Berubah) ---
 function SSLManager({ siteId }: { siteId: any }) {
     const [loading, setLoading] = useState(false);
 
@@ -162,14 +163,16 @@ function SSLManager({ siteId }: { siteId: any }) {
     );
 }
 
-// --- SUB COMPONENT: GENERAL SETTINGS (DIPERBARUI UNTUK PHP) ---
+// --- SUB COMPONENT: GENERAL SETTINGS (UPDATED FOR DEDICATED POOL) ---
 function GeneralSettings({ siteId }: { siteId: any }) {
     const [site, setSite] = useState<any>(null);
     const [newPort, setNewPort] = useState('');
-    const [phpVersion, setPhpVersion] = useState(''); // State untuk PHP
+    const [phpVersion, setPhpVersion] = useState('');
     const [loading, setLoading] = useState(false);
 
-    // Load data site saat ini
+    // [BARU] State untuk Dedicated Pool
+    const [optimizing, setOptimizing] = useState(false);
+
     useEffect(() => {
         const token = localStorage.getItem('token');
         api.get('/sites', { headers: { Authorization: `Bearer ${token}` } })
@@ -178,7 +181,7 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                 if(found) {
                     setSite(found);
                     setNewPort(found.app_port);
-                    setPhpVersion(found.php_version || '8.2'); // Default jika null
+                    setPhpVersion(found.php_version || '8.2');
                 }
             });
     }, [siteId]);
@@ -187,10 +190,7 @@ function GeneralSettings({ siteId }: { siteId: any }) {
         if(!confirm("Ubah port akan me-restart aplikasi. Lanjut?")) return;
         setLoading(true);
         try {
-            const token = localStorage.getItem('token');
-            await api.put(`/sites/${siteId}/port`, { new_port: parseInt(newPort) }, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            await api.put(`/sites/${siteId}/port`, { new_port: parseInt(newPort) });
             alert("Port berhasil diubah! Aplikasi sedang restart...");
             window.location.reload();
         } catch (err: any) {
@@ -200,15 +200,11 @@ function GeneralSettings({ siteId }: { siteId: any }) {
         }
     };
 
-    // [BARU] Fungsi Ganti Versi PHP
     const handleSwitchPhp = async () => {
         if(!confirm(`Switch ke PHP ${phpVersion}? Nginx akan di-reload.`)) return;
         setLoading(true);
         try {
-            const token = localStorage.getItem('token');
-            await api.put(`/sites/${siteId}/php`, { version: phpVersion }, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            await api.put(`/sites/${siteId}/php`, { version: phpVersion });
             alert(`Berhasil switch ke PHP ${phpVersion}!`);
             window.location.reload();
         } catch (err: any) {
@@ -218,10 +214,26 @@ function GeneralSettings({ siteId }: { siteId: any }) {
         }
     };
 
+    // [BARU] Fungsi Enable Dedicated Pool (Laravel Mode)
+    const handleEnablePool = async () => {
+        if(!confirm("⚠️ Mode ini akan me-restart PHP untuk website ini. Lanjutkan?")) return;
+
+        setOptimizing(true);
+        try {
+            const res = await api.post(`/sites/${siteId}/enable-dedicated-pool`);
+            alert(res.data.message);
+        } catch (err: any) {
+            alert("Failed: " + (err.response?.data?.detail || err.message));
+        } finally {
+            setOptimizing(false);
+        }
+    };
+
     if (!site) return <div className="text-slate-500">Loading details...</div>;
 
     return (
         <div className="space-y-6">
+            {/* CONFIGURATION CARD */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
                 <h3 className="text-white font-bold flex items-center gap-2 mb-4">
                     <Settings size={18}/> App Configuration
@@ -231,13 +243,11 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                     <div>
                         <label className="text-slate-400 text-sm block mb-1">Domain Name</label>
                         <input disabled value={site.domain} className="w-full bg-slate-950 text-slate-500 p-2 rounded border border-slate-800 cursor-not-allowed"/>
-                        <p className="text-xs text-slate-600 mt-1">Domain tidak bisa diubah (Hapus & Buat baru jika ingin ganti).</p>
+                        <p className="text-xs text-slate-600 mt-1">Domain tidak bisa diubah.</p>
                     </div>
 
-                    {/* LOGIC TAMPILAN BERDASARKAN TIPE WEBSITE */}
-
+                    {/* PHP SECTION */}
                     {site.type === 'php' ? (
-                        // --- JIKA PHP ---
                         <div>
                             <label className="text-slate-400 text-sm block mb-1">PHP Version</label>
                             <div className="flex gap-2">
@@ -259,12 +269,9 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                                     {loading ? <RefreshCw className="animate-spin" size={18}/> : 'Switch'}
                                 </button>
                             </div>
-                            <p className="text-xs text-slate-500 mt-1">
-                                Pilih versi PHP yang sesuai dengan kebutuhan script Anda.
-                            </p>
                         </div>
                     ) : (
-                        // --- JIKA NODE / PYTHON ---
+                        // NODE/PYTHON SECTION
                         <div>
                             <label className="text-slate-400 text-sm block mb-1">Application Port</label>
                             <div className="flex gap-2">
@@ -282,14 +289,47 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                                     {loading ? <RefreshCw className="animate-spin" size={18}/> : 'Save'}
                                 </button>
                             </div>
-                            <p className="text-xs text-slate-500 mt-1">
-                                Port aplikasi Node.js/Python di localhost. Nginx akan meneruskan traffic ke sini.
-                            </p>
                         </div>
                     )}
                 </div>
+
+                {/* [BARU] SPECIAL PHP OPTIMIZATION CARD */}
+                {site.type === 'php' && (
+                    <div className="mt-8 pt-6 border-t border-slate-800">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 bg-indigo-900/30 rounded-lg text-indigo-400">
+                                <Zap size={24} />
+                            </div>
+                            <div className="flex-1">
+                                <h4 className="text-white font-bold text-md flex items-center gap-2">
+                                    Process Optimization (Pro Mode)
+                                    <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full">RECOMMENDED FOR LARAVEL</span>
+                                </h4>
+                                <p className="text-slate-400 text-sm mt-1 mb-3">
+                                    By default, PHP processes share a global configuration. Enable this to create a
+                                    <strong> Dedicated PHP Pool</strong> for this site.
+                                </p>
+                                <ul className="text-slate-500 text-xs list-disc list-inside mb-4 space-y-1">
+                                    <li>Enables <code>exec</code>, <code>symlink</code>, <code>passthru</code> (Fixes <code>artisan storage:link</code>)</li>
+                                    <li>Isolated socket (Better security & stability)</li>
+                                    <li>Custom memory limits allowed</li>
+                                </ul>
+
+                                <button
+                                    onClick={handleEnablePool}
+                                    disabled={optimizing}
+                                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors"
+                                >
+                                    {optimizing ? <Loader2 className="animate-spin" size={16}/> : <Terminal size={16}/>}
+                                    {optimizing ? 'Configuring...' : 'Enable Dedicated Pool & Unlock Functions'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
 
+            {/* DANGER ZONE */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
                 <h3 className="text-white font-bold flex items-center gap-2 mb-2 text-red-500">
                     Danger Zone
