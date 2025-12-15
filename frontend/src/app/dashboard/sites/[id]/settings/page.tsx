@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import api from '@/lib/api';
-import {ShieldCheck, Key, Plus, Trash, Save, Loader2, Settings} from 'lucide-react';
+import {ShieldCheck, Key, Plus, Trash, Save, Loader2, Settings, RefreshCw} from 'lucide-react';
 
 export default function SettingsPage() {
     const { id } = useParams();
