@@ -1,7 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-import os
 
 from app.core.init_db import init_db
 
@@ -26,17 +24,10 @@ from app.modules.cron.router import router as cron_router
 from app.system.cron_manager import start_scheduler, reload_jobs_from_db
 from app.core.database import SessionLocal # Perlu ini buat load awal
 
-if not os.path.exists("www_data"):
-    os.makedirs("www_data")
-
-
-
 # --- AUTO MIGRATE (Buat tabel kalau belum ada) ---
 user_models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AlimPanel API", version="0.1.0")
-
-app.mount("/public", StaticFiles(directory="www_data"), name="public")
 
 # --- CORS ---
 origins = ["http://localhost:3000", "http://127.0.0.1:3000", "*"]
