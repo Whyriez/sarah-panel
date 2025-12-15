@@ -150,7 +150,7 @@ def get_site_env(site_id: int, db: Session = Depends(get_db), current_user: User
     if not site: raise HTTPException(404, "Site not found")
 
     # Path: backend/www_data/domain.com/.env
-    env_path = os.path.join(os.getcwd(), "www_data", site.domain, ".env")
+    env_path = os.path.join(SITES_BASE_DIR, site.domain, ".env")
 
     if not os.path.exists(env_path):
         return {"env": []}  # Kosong
@@ -171,7 +171,7 @@ def save_site_env(
     site = db.query(models.Site).filter(models.Site.id == site_id).first()
     if not site: raise HTTPException(404, "Site not found")
 
-    env_path = os.path.join(os.getcwd(), "www_data", site.domain, ".env")
+    env_path = os.path.join(SITES_BASE_DIR, site.domain, ".env")
 
     # Tulis ulang file .env
     with open(env_path, "w") as f:
@@ -264,7 +264,7 @@ def update_site_port(
         delete_app(site.domain)
         # Start yang baru (port baru)
         # Kita perlu path scriptnya
-        base_dir = os.path.join(os.getcwd(), "www_data", site.domain)
+        base_dir = env_path = os.path.join(SITES_BASE_DIR, site.domain, ".env")
         script = "app.py" if site.type == "python" else "index.js"  # Default logic
         # Kalau user udah punya package.json, logic start_app harusnya bisa nyesuain (nanti kita upgrade)
         start_app(site.domain, site.app_port, os.path.join(base_dir, script))

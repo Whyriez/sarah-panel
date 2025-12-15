@@ -100,6 +100,17 @@ systemctl daemon-reload
 systemctl enable alimpanel
 systemctl restart alimpanel
 
+echo "🔓 Configuring Sudoers for alimpanel..."
+# Memberi izin user alimpanel menjalankan perintah root tertentu tanpa password
+cat > /etc/sudoers.d/alimpanel <<EOF
+alimpanel ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
+alimpanel ALL=(root) NOPASSWD: /usr/bin/certbot
+alimpanel ALL=(root) NOPASSWD: /usr/bin/tee /etc/nginx/sites-available/*
+alimpanel ALL=(root) NOPASSWD: /usr/bin/ln -s /etc/nginx/sites-available/* /etc/nginx/sites-enabled/*
+alimpanel ALL=(root) NOPASSWD: /usr/bin/rm /etc/nginx/sites-enabled/*
+alimpanel ALL=(root) NOPASSWD: /usr/bin/rm /etc/nginx/sites-available/*
+EOF
+
 # 6. SETUP NGINX UTAMA (Admin Panel Only)
 # [FIX] Kita pindahkan Panel ke Port 8888 supaya Port 80/443 murni untuk User Sites
 echo "🌐 Configuring Nginx for Panel UI (Port ${PANEL_PORT})..."
@@ -146,7 +157,7 @@ cd ..
 # [FIX] Setup PM2 Startup Script agar otomatis jalan pas reboot
 echo "⚙️ Configuring PM2 Startup..."
 # Ini akan mendeteksi sistem init (systemd) dan menjalankannya
-pm2 startup systemd -u root --hp /root | bash
+pm2 startup systemd -u alimpanel --hp /home/alimpanel | bash
 pm2 save
 
 echo "✅ INSTALLATION COMPLETE!"

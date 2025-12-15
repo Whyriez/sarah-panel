@@ -56,10 +56,8 @@ def reload_nginx():
         if platform.system() == "Windows":
             print("🖥️ [WINDOWS] Simulasi: nginx -s reload")
         else:
-            # Cek syntax dulu biar gak crash satu server
-            subprocess.run(["nginx", "-t"], check=True)
-            # Reload
-            subprocess.run(["systemctl", "reload", "nginx"], check=True)
+            subprocess.run(["sudo", "nginx", "-t"], check=True)
+            subprocess.run(["sudo", "systemctl", "reload", "nginx"], check=True)
             print("✅ Nginx Reloaded")
     except Exception as e:
         print(f"❌ Nginx Reload Failed: {e}")
@@ -85,11 +83,18 @@ def create_nginx_config(domain: str, port: int, type: str):
             config_content = NGINX_HTTP_TEMPLATE.format(domain=domain, port=port)
 
         # Tulis File
-        with open(config_path, "w") as f:
-            f.write(config_content)
+        # Tulis file pakai sudo tee
+        subprocess.run(
+            ["sudo", "tee", config_path],
+            input=config_content, text=True, check=True
+        )
 
+        # Buat symlink pakai sudo ln
         if not os.path.exists(symlink_path):
-            os.symlink(config_path, symlink_path)
+            subprocess.run(
+                ["sudo", "ln", "-s", config_path, symlink_path],
+                check=True
+            )
 
         reload_nginx()
         print(f"✅ Nginx Config updated for {domain}")
@@ -110,13 +115,8 @@ def delete_nginx_config(domain: str):
     symlink_path = f"/etc/nginx/sites-enabled/{domain}"
 
     try:
-        # Hapus Symlink
-        if os.path.exists(symlink_path):
-            os.remove(symlink_path)
-
-        # Hapus File Asli
-        if os.path.exists(config_path):
-            os.remove(config_path)
+        subprocess.run(["sudo", "rm", "-f", symlink_path], check=False)
+        subprocess.run(["sudo", "rm", "-f", config_path], check=False)
 
         print(f"🗑️ Nginx Config deleted for {domain}")
         reload_nginx()
