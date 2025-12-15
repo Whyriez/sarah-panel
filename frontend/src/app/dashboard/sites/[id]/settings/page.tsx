@@ -164,6 +164,7 @@ function SSLManager({ siteId }: { siteId: any }) {
 }
 
 // --- SUB COMPONENT: GENERAL SETTINGS (UPDATED FOR DEDICATED POOL) ---
+// --- SUB COMPONENT: GENERAL SETTINGS (UPDATED) ---
 function GeneralSettings({ siteId }: { siteId: any }) {
     const [site, setSite] = useState<any>(null);
     const [newPort, setNewPort] = useState('');
@@ -179,12 +180,10 @@ function GeneralSettings({ siteId }: { siteId: any }) {
         api.get('/sites', { headers: { Authorization: `Bearer ${token}` } })
             .then(res => {
                 const found = res.data.find((s: any) => s.id == siteId);
-                if(found) {
+                if (found) {
                     setSite(found);
                     setNewPort(found.app_port);
                     setPhpVersion(found.php_version || '8.2');
-
-                    // [FIX 1] Pindahkan setStartupCmd ke dalam sini (scope 'found')
                     setStartupCmd(found.startup_command || '');
                 }
             });
@@ -193,10 +192,9 @@ function GeneralSettings({ siteId }: { siteId: any }) {
     const handleSaveCmd = async () => {
         setLoading(true);
         try {
-            // [FIX] Pastikan endpoint API backend sudah sesuai (/sites/{id}/startup-command)
             await api.put(`/sites/${siteId}/startup-command`, { command: startupCmd });
             alert("Command updated & App restarted!");
-        } catch(e) {
+        } catch (e) {
             alert("Failed to save command");
         } finally {
             setLoading(false);
@@ -204,7 +202,7 @@ function GeneralSettings({ siteId }: { siteId: any }) {
     }
 
     const handleSavePort = async () => {
-        if(!confirm("Ubah port akan me-restart aplikasi. Lanjut?")) return;
+        if (!confirm("Ubah port akan me-restart aplikasi. Lanjut?")) return;
         setLoading(true);
         try {
             await api.put(`/sites/${siteId}/port`, { new_port: parseInt(newPort) });
@@ -218,7 +216,7 @@ function GeneralSettings({ siteId }: { siteId: any }) {
     };
 
     const handleSwitchPhp = async () => {
-        if(!confirm(`Switch ke PHP ${phpVersion}? Nginx akan di-reload.`)) return;
+        if (!confirm(`Switch ke PHP ${phpVersion}? Nginx akan di-reload.`)) return;
         setLoading(true);
         try {
             await api.put(`/sites/${siteId}/php`, { version: phpVersion });
@@ -232,7 +230,7 @@ function GeneralSettings({ siteId }: { siteId: any }) {
     };
 
     const handleEnablePool = async () => {
-        if(!confirm("⚠️ Mode ini akan me-restart PHP untuk website ini. Lanjutkan?")) return;
+        if (!confirm("⚠️ Mode ini akan me-restart PHP untuk website ini. Lanjutkan?")) return;
         setOptimizing(true);
         try {
             const res = await api.post(`/sites/${siteId}/enable-dedicated-pool`);
@@ -251,13 +249,13 @@ function GeneralSettings({ siteId }: { siteId: any }) {
             {/* CONFIGURATION CARD */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
                 <h3 className="text-white font-bold flex items-center gap-2 mb-4">
-                    <Settings size={18}/> App Configuration
+                    <Settings size={18} /> App Configuration
                 </h3>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label className="text-slate-400 text-sm block mb-1">Domain Name</label>
-                        <input disabled value={site.domain} className="w-full bg-slate-950 text-slate-500 p-2 rounded border border-slate-800 cursor-not-allowed"/>
+                        <input disabled value={site.domain} className="w-full bg-slate-950 text-slate-500 p-2 rounded border border-slate-800 cursor-not-allowed" />
                         <p className="text-xs text-slate-600 mt-1">Domain tidak bisa diubah.</p>
                     </div>
 
@@ -283,7 +281,7 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                                     disabled={loading || phpVersion == site.php_version}
                                     className="bg-blue-600 hover:bg-blue-700 text-white px-4 rounded transition-colors disabled:opacity-50"
                                 >
-                                    {loading ? <RefreshCw className="animate-spin" size={18}/> : 'Switch'}
+                                    {loading ? <RefreshCw className="animate-spin" size={18} /> : 'Switch'}
                                 </button>
                             </div>
                         </div>
@@ -305,12 +303,12 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                                         disabled={loading || newPort == site.app_port}
                                         className="bg-blue-600 hover:bg-blue-700 text-white px-4 rounded transition-colors disabled:opacity-50"
                                     >
-                                        {loading ? <RefreshCw className="animate-spin" size={18}/> : 'Save'}
+                                        {loading ? <RefreshCw className="animate-spin" size={18} /> : 'Save'}
                                     </button>
                                 </div>
                             </div>
 
-                            {/* [FIX 2] STARTUP COMMAND (Dipindah ke dalam Return UI) */}
+                            {/* STARTUP COMMAND */}
                             <div>
                                 <label className="text-slate-400 text-sm block mb-1">Startup Command</label>
                                 <div className="flex gap-2">
@@ -336,7 +334,7 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                     )}
                 </div>
 
-                {/* SPECIAL PHP OPTIMIZATION CARD */}
+                {/* SPECIAL PHP OPTIMIZATION CARD (DEDICATED POOL) */}
                 {site.type === 'php' && (
                     <div className="mt-8 pt-6 border-t border-slate-800">
                         <div className="flex items-start gap-4">
@@ -356,9 +354,55 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                                     disabled={optimizing}
                                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors"
                                 >
-                                    {optimizing ? <Loader2 className="animate-spin" size={16}/> : <Terminal size={16}/>}
+                                    {optimizing ? <Loader2 className="animate-spin" size={16} /> : <Terminal size={16} />}
                                     {optimizing ? 'Configuring...' : 'Enable Dedicated Pool'}
                                 </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* [BARU] LARAVEL QUEUE WORKER MANAGER */}
+                {site.type === 'php' && (
+                    <div className="mt-6 pt-6 border-t border-slate-800">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 bg-orange-900/30 rounded-lg text-orange-400">
+                                <RefreshCw size={24} />
+                            </div>
+                            <div className="flex-1">
+                                <h4 className="text-white font-bold text-md flex items-center gap-2">
+                                    Background Worker
+                                    <span className="text-[10px] bg-orange-600 text-white px-2 py-0.5 rounded-full">LARAVEL QUEUE</span>
+                                </h4>
+                                <p className="text-slate-400 text-sm mt-1 mb-3">
+                                    Jalankan <code>php artisan queue:work</code> menggunakan PM2 agar proses background (kirim email, job) tidak membuat website lemot.
+                                </p>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={async () => {
+                                            if (!confirm("Start Queue Worker?")) return;
+                                            try {
+                                                await api.post(`/sites/${siteId}/queue-worker`, { connection: 'database', queue: 'default' }, { params: { action: 'start' } });
+                                                alert("Worker Started!");
+                                            } catch (e: any) { alert(e.response?.data?.detail || "Failed"); }
+                                        }}
+                                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+                                    >
+                                        Start Worker
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            if (!confirm("Stop Worker?")) return;
+                                            try {
+                                                await api.post(`/sites/${siteId}/queue-worker`, {}, { params: { action: 'stop' } });
+                                                alert("Worker Stopped!");
+                                            } catch (e: any) { alert(e.response?.data?.detail || "Failed"); }
+                                        }}
+                                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+                                    >
+                                        Stop Worker
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
