@@ -60,17 +60,35 @@ npm run build
 cd ..
 
 # 5. SETUP SYSTEMD (Auto Start Backend)
-# [FIX] Menggunakan Absolute Path yang valid dari INSTALL_DIR
 echo "⚙️ Creating System Service..."
+
+# [BARU] 1. Buat user sistem khusus 'alimpanel' (jika belum ada)
+# -r: system account, -s /bin/false: tidak bisa login shell (aman)
+if ! id -u alimpanel > /dev/null 2>&1; then
+    useradd -r -s /bin/false alimpanel
+fi
+
+# [BARU] 2. Ubah kepemilikan folder backend ke user 'alimpanel'
+# Agar user tersebut punya hak baca/tulis di folder aplikasi & db
+chown -R alimpanel:alimpanel ${INSTALL_DIR}/backend
+
+# [BARU] 3. Update Service agar berjalan sebagai 'alimpanel'
 cat > /etc/systemd/system/alimpanel.service <<EOF
 [Unit]
 Description=AlimPanel Backend API
 After=network.target
 
 [Service]
-User=root
+# Ganti dari root ke alimpanel
+User=alimpanel
+Group=alimpanel
+
 WorkingDirectory=${INSTALL_DIR}/backend
 ExecStart=${INSTALL_DIR}/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# Environment variables (PENTING: agar backend bisa baca .env)
+EnvironmentFile=${INSTALL_DIR}/backend/.env
+
 Restart=always
 RestartSec=5
 

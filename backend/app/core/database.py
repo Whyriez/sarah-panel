@@ -1,9 +1,13 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Kita pakai SQLite file bernama 'sarahpanel.db'
-SQLALCHEMY_DATABASE_URL = "sqlite:///./sarahpanel.db"
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sarahpanel.db")
 
 # connect_args={"check_same_thread": False} itu wajib khusus buat SQLite
 engine = create_engine(
