@@ -33,47 +33,35 @@ def run_command(command: list):
         return False, e.stderr
 
 
-def start_app(domain: str, port: int, script_path: str, interpreter: str = "node"):
-    """
-    Menjalankan aplikasi user menggunakan PM2.
-    Command asli: pm2 start app.js --name domain.com -- --port 3000
-    """
-
-    # Kalau file script belum ada (karena user belum upload), kita buat dummy file dulu
-    # biar PM2 gak error saat dicoba start
-    if IS_WINDOWS and not os.path.exists(script_path):
-        with open(script_path, 'w') as f:
-            f.write("console.log('Hello AlimPanel');")
-
-    app_name = domain
-
-    # Command PM2
-    # --time: log waktu
-    # --name: nama process di PM2
-    command = [
-        "pm2", "start", script_path,
-        "--name", app_name,
-        "--time"
-    ]
-
-    # Inject Port via Environment Variable (Cara standar Node/Python baca port)
-    # Di Linux commandnya jadi: PORT=3000 pm2 start ...
-    # Tapi lewat subprocess kita set env parameter
-
-    # Khusus simulasi, kita return sukses aja
-    if IS_WINDOWS:
-        return run_command(command)
-
-    env = os.environ.copy()
-    env["PORT"] = str(port)
-
+def start_app(domain: str, port: int, cwd: str, command: str = None):
     try:
-        subprocess.run(command, env=env, check=True)
+        # Stop dulu kalau ada
+        subprocess.run(["pm2", "delete", domain], check=False, capture_output=True)
 
-        # [FIX] SIMPAN STATE PM2 AGAR AUTO-START SETELAH REBOOT
-        subprocess.run(["pm2", "save"], check=False)
+        # Default Command Logic
+        if not command:
+            if os.path.exists(os.path.join(cwd, "package.json")):
+                command = "npm start"
+            elif os.path.exists(os.path.join(cwd, "app.py")):
+                command = "python3 app.py"
+            else:
+                command = "node index.js"
 
-        return True, "App started"
+        print(f"🚀 Starting {domain} with command: {command}")
+
+        # PM2 Start Command
+        # Kita gunakan 'pm2 start "cmd" --name domain'
+        cmd = [
+            "pm2", "start", command,
+            "--name", domain,
+            "--cwd", cwd,
+            "--time"  # Menampilkan timestamp di log
+        ]
+
+        subprocess.run(cmd, check=True)
+        subprocess.run(["pm2", "save"], check=True)
+
+        return True, "Started"
     except Exception as e:
         return False, str(e)
 

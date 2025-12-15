@@ -1,7 +1,7 @@
 import psutil
 import platform
 from datetime import datetime
-
+import shutil
 
 def get_system_stats():
     """
@@ -15,10 +15,9 @@ def get_system_stats():
     ram_total_gb = round(memory.total / (1024 ** 3), 2)
     ram_used_gb = round(memory.used / (1024 ** 3), 2)
 
-    # 3. Disk Usage (Root path /)
-    disk = psutil.disk_usage('/')
-    disk_total_gb = round(disk.total / (1024 ** 3), 2)
-    disk_used_gb = round(disk.used / (1024 ** 3), 2)
+    # Disk Usage
+    total, used, free = shutil.disk_usage("/")
+    disk_percent = (used / total) * 100
 
     # 4. Boot Time & OS
     boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
@@ -35,9 +34,10 @@ def get_system_stats():
             "percent": memory.percent
         },
         "disk": {
-            "total_gb": disk_total_gb,
-            "used_gb": disk_used_gb,
-            "percent": disk.percent
+            "total_gb": total // (2**30),
+            "used_gb": used // (2**30),
+            "free_gb": free // (2**30),
+            "percent": round(disk_percent, 1)
         },
         "system": {
             "os": os_info,

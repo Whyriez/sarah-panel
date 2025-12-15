@@ -1,6 +1,10 @@
+import subprocess
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+from app.modules.files.router import SITES_BASE_DIR
 from app.modules.sites.models import Site
 from app.system.git_manager import git_clone, git_pull
 from app.system.pm2_manager import reload_app
@@ -127,3 +131,41 @@ def perform_deploy(site):
             print("🔄 PM2 Reloaded")
     else:
         print(f"❌ Deploy Failed: {msg}")
+
+
+@router.post("/webhook/deploy/{token}")
+def webhook_deploy(token: str, db: Session = Depends(get_db)):
+    # 1. Cari site berdasarkan token
+    site = db.query(Site).filter(Site.webhook_token == token).first()
+    if not site:
+        raise HTTPException(404, "Invalid Webhook Token")
+
+    # 2. Jalankan Git Pull
+    base_dir = os.path.join(SITES_BASE_DIR, site.domain)
+
+    try:
+        # Git Pull
+        subprocess.run(["git", "pull"], cwd=base_dir, check=True)
+
+        # 3. Post-Deploy Action (Install Dep & Restart)
+        if site.type == "node":
+            subprocess.run(["npm", "install"], cwd=base_dir, check=False)
+            subprocess.run(["pm2", "restart", site.domain], check=False)
+
+        elif site.type == "python":
+            venv_python = os.path.join(base_dir, "venv/bin/python")
+            if os.path.exists(venv_python):
+                subprocess.run([venv_python, "-m", "pip", "install", "-r", "requirements.txt"], cwd=base_dir)
+            subprocess.run(["pm2", "restart", site.domain], check=False)
+
+        elif site.type == "php":
+            # Laravel optimization
+            subprocess.run(["composer", "install", "--no-dev"], cwd=base_dir, check=False)
+            subprocess.run(["php", "artisan", "migrate", "--force"], cwd=base_dir, check=False)
+            # Reload PHP-FPM (butuh sudo, pastikan izin ada)
+            # subprocess.run(["sudo", "systemctl", "reload", f"php{site.php_version}-fpm"])
+
+        return {"status": "Deployed", "site": site.domain}
+
+    except Exception as e:
+        return {"status": "Failed", "error": str(e)}

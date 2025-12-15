@@ -24,6 +24,11 @@ router = APIRouter(
 class UpdatePortRequest(BaseModel):
     new_port: int
 
+class QueueWorkerRequest(BaseModel):
+    connection: str = "database"
+    queue: str = "default"
+    tries: int = 3
+    timeout: int = 90
 
 def get_available_port(db: Session, start_port=3000):
     """
@@ -38,6 +43,40 @@ def get_available_port(db: Session, start_port=3000):
             return current_port
         current_port += 1
 
+
+@router.post("/{site_id}/queue-worker")
+def manage_queue_worker(
+        site_id: int,
+        payload: QueueWorkerRequest,
+        action: str = "start",  # query param: ?action=start/stop
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    site = get_user_site(site_id, current_user.id, db)
+    if site.type != 'php': return {"error": "PHP Only"}
+
+    worker_name = f"{site.domain}-worker"
+    site_path = os.path.join(SITES_BASE_DIR, site.domain)
+    php_bin = f"php{site.php_version}"
+
+    if action == "stop":
+        subprocess.run(["pm2", "delete", worker_name], check=False)
+        return {"message": "Worker stopped"}
+
+    # Start Logic
+    cmd = [
+        "pm2", "start", php_bin,
+        "--name", worker_name,
+        "--cwd", site_path,
+        "--", "artisan", "queue:work", payload.connection,
+        f"--queue={payload.queue}",
+        f"--tries={payload.tries}",
+        f"--timeout={payload.timeout}"
+    ]
+
+    subprocess.run(cmd, check=True)
+    subprocess.run(["pm2", "save"], check=True)
+    return {"message": "Worker started"}
 
 # 1. GET ALL SITES
 @router.get("/", response_model=list[schemas.SiteResponse])
@@ -65,7 +104,8 @@ def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db),
         type=site.type,
         php_version=site.php_version if site.type == "php" else None,  # Simpan versi PHP
         user_id=current_user.id,
-        app_port=assigned_port
+        app_port=assigned_port,
+        startup_command=site.startup_command if hasattr(site, 'startup_command') else None
     )
 
     db.add(new_site)
@@ -88,6 +128,9 @@ def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db),
                 f.write("// Dummy Node App\nconst http = require('http');\nconst server = http.createServer((req, res) => { res.writeHead(200); res.end('Hello SarahPanel!'); });\nserver.listen(process.env.PORT || 3000);")
     else:
         pass
+
+    if new_site.type in ["node", "python"]:
+        start_app(new_site.domain, new_site.app_port, base_dir, new_site.startup_command)
 
     # 3. Start PM2 & Nginx
     if site.type == "php":
@@ -120,6 +163,23 @@ def get_user_site(site_id: int, user_id: int, db: Session):
         raise HTTPException(status_code=404, detail="Site not found")
     return site
 
+
+@router.put("/{site_id}/startup-command")
+def update_startup_command(
+        site_id: int,
+        payload: dict,  # { "command": "npm run dev" }
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    site = get_user_site(site_id, current_user.id, db)
+    site.startup_command = payload['command']
+    db.commit()
+
+    # Restart app dengan command baru
+    base_dir = os.path.join(SITES_BASE_DIR, site.domain)
+    start_app(site.domain, site.app_port, base_dir, site.startup_command)
+
+    return {"message": "Startup command updated & App restarted"}
 
 @router.delete("/{site_id}")
 def delete_site(site_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):

@@ -1,32 +1,61 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import api from '@/lib/api';
-import { GitBranch, Link2, Save, Webhook } from 'lucide-react';
+import { GitBranch, Link2, Save, Webhook, Copy, Check } from 'lucide-react';
 
 export default function GitPage() {
-    const { id } = useParams();
+    const { id } = useParams(); // id website
     const [repoUrl, setRepoUrl] = useState('');
     const [branch, setBranch] = useState('main');
     const [webhookUrl, setWebhookUrl] = useState('');
     const [loading, setLoading] = useState(false);
+    const [copied, setCopied] = useState(false);
+
+    // 1. Load Data Site saat halaman dibuka (untuk cek apakah Git sudah connect sebelumnya)
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        api.get('/sites', { headers: { Authorization: `Bearer ${token}` } })
+            .then(res => {
+                const currentSite = res.data.find((s: any) => s.id == id);
+                if (currentSite) {
+                    if (currentSite.repo_url) setRepoUrl(currentSite.repo_url);
+                    if (currentSite.branch) setBranch(currentSite.branch);
+
+                    // Generate Webhook URL jika token ada
+                    if (currentSite.webhook_token) {
+                        const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+                        setWebhookUrl(`${baseUrl}/git/webhook/deploy/${currentSite.webhook_token}`);
+                    }
+                }
+            })
+            .catch(err => console.error("Gagal load site:", err));
+    }, [id]);
 
     const handleConnect = async () => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const res = await api.post(`/git/setup/${id}`,
+            // Endpoint ini akan menyimpan Repo URL dan me-return webhook_url baru
+            const res = await api.post(`/sites/${id}/git-setup`, // Pastikan route backend sesuai
                 { repo_url: repoUrl, branch: branch },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
+
             setWebhookUrl(res.data.webhook_url);
-            alert("Repository Terhubung! Sekarang folder website berisi kode dari Git.");
+            alert("Repository Terhubung! Kode sedang di-clone di background.");
         } catch (err: any) {
-            alert("Gagal: " + err.response?.data?.detail);
+            alert("Gagal: " + (err.response?.data?.detail || err.message));
         } finally {
             setLoading(false);
         }
+    };
+
+    const copyToClipboard = () => {
+        navigator.clipboard.writeText(webhookUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
     };
 
     return (
@@ -45,7 +74,7 @@ export default function GitPage() {
                         <input
                             type="text"
                             placeholder="https://github.com/username/repo.git"
-                            className="bg-transparent flex-1 outline-none text-white"
+                            className="bg-transparent flex-1 outline-none text-white text-sm"
                             value={repoUrl}
                             onChange={(e) => setRepoUrl(e.target.value)}
                         />
@@ -58,7 +87,8 @@ export default function GitPage() {
                     <label className="text-slate-400 text-sm mb-2 block">Branch</label>
                     <input
                         type="text"
-                        className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white outline-none focus:border-blue-500"
+                        placeholder="main"
+                        className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white outline-none focus:border-blue-500 text-sm"
                         value={branch}
                         onChange={(e) => setBranch(e.target.value)}
                     />
@@ -72,18 +102,27 @@ export default function GitPage() {
                     {loading ? 'Cloning...' : <><Save size={18}/> Save & Clone</>}
                 </button>
 
-                {/* Webhook Info (Muncul setelah save) */}
+                {/* Webhook Info (Muncul setelah save atau jika sudah ada) */}
                 {webhookUrl && (
                     <div className="mt-8 pt-6 border-t border-slate-800 animate-in fade-in slide-in-from-top-4">
                         <h3 className="text-white font-bold flex items-center gap-2 mb-2">
                             <Webhook className="text-blue-400"/> Webhook Integration
                         </h3>
                         <p className="text-sm text-slate-400 mb-4">
-                            Copy URL ini ke <b>GitHub Repo Settings {'>'} Webhooks</b>.
+                            Copy URL ini ke <b>GitHub Repo Settings {'>'} Webhooks</b>.<br/>
                             Set Content-Type ke <code>application/json</code>.
                         </p>
-                        <div className="bg-slate-950 p-3 rounded border border-blue-900/50 text-blue-100 font-mono text-xs break-all select-all">
-                            {webhookUrl}
+                        <div className="flex gap-2">
+                            <div className="flex-1 bg-slate-950 p-3 rounded border border-blue-900/50 text-blue-100 font-mono text-xs break-all">
+                                {webhookUrl}
+                            </div>
+                            <button
+                                onClick={copyToClipboard}
+                                className="bg-slate-800 hover:bg-slate-700 text-white px-4 rounded border border-slate-700 flex items-center justify-center"
+                                title="Copy"
+                            >
+                                {copied ? <Check size={18} className="text-green-500"/> : <Copy size={18}/>}
+                            </button>
                         </div>
                     </div>
                 )}

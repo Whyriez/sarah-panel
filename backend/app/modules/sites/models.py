@@ -1,3 +1,5 @@
+import secrets
+
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -23,3 +25,6 @@ class Site(Base):
     repo_url = Column(String, nullable=True)  # https://github.com/alim/my-project.git
     branch = Column(String, default="main")  # main / master
     auto_deploy = Column(Boolean, default=False)
+
+    startup_command = Column(String, nullable=True)
+    webhook_token = Column(String, default=lambda: secrets.token_urlsafe(16))

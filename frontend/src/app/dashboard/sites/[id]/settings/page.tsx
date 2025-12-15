@@ -170,8 +170,9 @@ function GeneralSettings({ siteId }: { siteId: any }) {
     const [phpVersion, setPhpVersion] = useState('');
     const [loading, setLoading] = useState(false);
 
-    // [BARU] State untuk Dedicated Pool
+    // State untuk Dedicated Pool & Startup Command
     const [optimizing, setOptimizing] = useState(false);
+    const [startupCmd, setStartupCmd] = useState('');
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -182,9 +183,25 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                     setSite(found);
                     setNewPort(found.app_port);
                     setPhpVersion(found.php_version || '8.2');
+
+                    // [FIX 1] Pindahkan setStartupCmd ke dalam sini (scope 'found')
+                    setStartupCmd(found.startup_command || '');
                 }
             });
     }, [siteId]);
+
+    const handleSaveCmd = async () => {
+        setLoading(true);
+        try {
+            // [FIX] Pastikan endpoint API backend sudah sesuai (/sites/{id}/startup-command)
+            await api.put(`/sites/${siteId}/startup-command`, { command: startupCmd });
+            alert("Command updated & App restarted!");
+        } catch(e) {
+            alert("Failed to save command");
+        } finally {
+            setLoading(false);
+        }
+    }
 
     const handleSavePort = async () => {
         if(!confirm("Ubah port akan me-restart aplikasi. Lanjut?")) return;
@@ -214,10 +231,8 @@ function GeneralSettings({ siteId }: { siteId: any }) {
         }
     };
 
-    // [BARU] Fungsi Enable Dedicated Pool (Laravel Mode)
     const handleEnablePool = async () => {
         if(!confirm("⚠️ Mode ini akan me-restart PHP untuk website ini. Lanjutkan?")) return;
-
         setOptimizing(true);
         try {
             const res = await api.post(`/sites/${siteId}/enable-dedicated-pool`);
@@ -239,15 +254,17 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                     <Settings size={18}/> App Configuration
                 </h3>
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label className="text-slate-400 text-sm block mb-1">Domain Name</label>
                         <input disabled value={site.domain} className="w-full bg-slate-950 text-slate-500 p-2 rounded border border-slate-800 cursor-not-allowed"/>
                         <p className="text-xs text-slate-600 mt-1">Domain tidak bisa diubah.</p>
                     </div>
 
-                    {/* PHP SECTION */}
+                    {/* LOGIC TAMPILAN BERDASARKAN TIPE WEBSITE */}
+
                     {site.type === 'php' ? (
+                        // --- JIKA PHP ---
                         <div>
                             <label className="text-slate-400 text-sm block mb-1">PHP Version</label>
                             <div className="flex gap-2">
@@ -271,29 +288,55 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                             </div>
                         </div>
                     ) : (
-                        // NODE/PYTHON SECTION
-                        <div>
-                            <label className="text-slate-400 text-sm block mb-1">Application Port</label>
-                            <div className="flex gap-2">
-                                <input
-                                    type="number"
-                                    value={newPort}
-                                    onChange={(e) => setNewPort(e.target.value)}
-                                    className="flex-1 bg-slate-950 text-white p-2 rounded border border-slate-700 outline-none focus:border-blue-500"
-                                />
-                                <button
-                                    onClick={handleSavePort}
-                                    disabled={loading || newPort == site.app_port}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 rounded transition-colors disabled:opacity-50"
-                                >
-                                    {loading ? <RefreshCw className="animate-spin" size={18}/> : 'Save'}
-                                </button>
+                        // --- JIKA NODE / PYTHON ---
+                        <div className="space-y-4">
+                            {/* PORT SETTING */}
+                            <div>
+                                <label className="text-slate-400 text-sm block mb-1">Application Port</label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="number"
+                                        value={newPort}
+                                        onChange={(e) => setNewPort(e.target.value)}
+                                        className="flex-1 bg-slate-950 text-white p-2 rounded border border-slate-700 outline-none focus:border-blue-500"
+                                    />
+                                    <button
+                                        onClick={handleSavePort}
+                                        disabled={loading || newPort == site.app_port}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 rounded transition-colors disabled:opacity-50"
+                                    >
+                                        {loading ? <RefreshCw className="animate-spin" size={18}/> : 'Save'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* [FIX 2] STARTUP COMMAND (Dipindah ke dalam Return UI) */}
+                            <div>
+                                <label className="text-slate-400 text-sm block mb-1">Startup Command</label>
+                                <div className="flex gap-2">
+                                    <input
+                                        value={startupCmd}
+                                        onChange={e => setStartupCmd(e.target.value)}
+                                        placeholder={site.type === 'python' ? "e.g. gunicorn app:app" : "e.g. npm start"}
+                                        className="flex-1 bg-slate-950 text-white p-2 rounded border border-slate-700 outline-none focus:border-blue-500"
+                                    />
+                                    <button
+                                        onClick={handleSaveCmd}
+                                        disabled={loading}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 rounded transition-colors disabled:opacity-50"
+                                    >
+                                        Save
+                                    </button>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Perintah untuk menjalankan aplikasi via PM2.
+                                </p>
                             </div>
                         </div>
                     )}
                 </div>
 
-                {/* [BARU] SPECIAL PHP OPTIMIZATION CARD */}
+                {/* SPECIAL PHP OPTIMIZATION CARD */}
                 {site.type === 'php' && (
                     <div className="mt-8 pt-6 border-t border-slate-800">
                         <div className="flex items-start gap-4">
@@ -306,22 +349,15 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                                     <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full">RECOMMENDED FOR LARAVEL</span>
                                 </h4>
                                 <p className="text-slate-400 text-sm mt-1 mb-3">
-                                    By default, PHP processes share a global configuration. Enable this to create a
-                                    <strong> Dedicated PHP Pool</strong> for this site.
+                                    Enable <strong>Dedicated PHP Pool</strong> to unblock functions like <code>exec</code>, <code>symlink</code>, and isolate processes.
                                 </p>
-                                <ul className="text-slate-500 text-xs list-disc list-inside mb-4 space-y-1">
-                                    <li>Enables <code>exec</code>, <code>symlink</code>, <code>passthru</code> (Fixes <code>artisan storage:link</code>)</li>
-                                    <li>Isolated socket (Better security & stability)</li>
-                                    <li>Custom memory limits allowed</li>
-                                </ul>
-
                                 <button
                                     onClick={handleEnablePool}
                                     disabled={optimizing}
                                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded text-sm font-medium flex items-center gap-2 disabled:opacity-50 transition-colors"
                                 >
                                     {optimizing ? <Loader2 className="animate-spin" size={16}/> : <Terminal size={16}/>}
-                                    {optimizing ? 'Configuring...' : 'Enable Dedicated Pool & Unlock Functions'}
+                                    {optimizing ? 'Configuring...' : 'Enable Dedicated Pool'}
                                 </button>
                             </div>
                         </div>

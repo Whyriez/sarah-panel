@@ -1,4 +1,6 @@
 import os
+import secrets
+
 import requests
 import zipfile
 import io
@@ -31,6 +33,41 @@ class ExtensionPayload(BaseModel):
     extension: str # "intl", "redis"
     action: str    # "install" atau "uninstall"
 
+
+@router.post("/marketplace/install/phpmyadmin")
+def install_phpmyadmin(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_pma_installer)
+    return {"message": "Installing phpMyAdmin..."}
+
+
+def run_pma_installer():
+    # 1. Download PMA
+    PMA_URL = "https://files.phpmyadmin.net/phpMyAdmin/5.2.1/phpMyAdmin-5.2.1-all-languages.zip"
+    target_dir = "/var/www/html/phpmyadmin"
+
+    if os.path.exists(target_dir):
+        shutil.rmtree(target_dir)
+
+    # Download & Extract (reuse fungsi download_and_extract Anda)
+    download_and_extract(PMA_URL, "/var/www/html/")
+
+    # Rename folder hasil ekstrak
+    extracted = "/var/www/html/phpMyAdmin-5.2.1-all-languages"
+    shutil.move(extracted, target_dir)
+
+    # 2. Config Blowfish Secret
+    config_sample = os.path.join(target_dir, "config.sample.inc.php")
+    config_real = os.path.join(target_dir, "config.inc.php")
+
+    secret = secrets.token_hex(16)
+    with open(config_sample, 'r') as f:
+        content = f.read()
+    content = content.replace("$cfg['blowfish_secret'] = '';", f"$cfg['blowfish_secret'] = '{secret}';")
+
+    with open(config_real, 'w') as f:
+        f.write(content)
+
+    print("✅ phpMyAdmin Installed at http://SERVER_IP/phpmyadmin")
 
 @router.get("/marketplace/php/{version}/extensions")
 def get_php_extensions(version: str, current_user: User = Depends(get_current_user)):
