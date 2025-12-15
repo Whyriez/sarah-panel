@@ -128,6 +128,7 @@ alimpanel ALL=(root) NOPASSWD: /usr/bin/tee /etc/nginx/sites-available/*
 alimpanel ALL=(root) NOPASSWD: /usr/bin/ln -s /etc/nginx/sites-available/* /etc/nginx/sites-enabled/*
 alimpanel ALL=(root) NOPASSWD: /usr/bin/rm /etc/nginx/sites-enabled/*
 alimpanel ALL=(root) NOPASSWD: /usr/bin/rm /etc/nginx/sites-available/*
+alimpanel ALL=(root) NOPASSWD: /usr/bin/systemctl restart php*-fpm
 EOF
 
 # 6. SETUP NGINX UTAMA (Admin Panel Only)

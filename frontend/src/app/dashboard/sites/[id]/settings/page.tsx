@@ -7,8 +7,7 @@ import {ShieldCheck, Key, Plus, Trash, Save, Loader2, Settings, RefreshCw} from 
 
 export default function SettingsPage() {
     const { id } = useParams();
-    const [activeTab, setActiveTab] = useState('env'); // 'env' or 'ssl'
-    const [loading, setLoading] = useState(false);
+    const [activeTab, setActiveTab] = useState('general'); // 'env' or 'ssl'
 
     return (
         <div>
@@ -44,7 +43,7 @@ export default function SettingsPage() {
     );
 }
 
-// --- SUB COMPONENT: ENV MANAGER ---
+// --- SUB COMPONENT: ENV MANAGER (Sama seperti sebelumnya) ---
 function EnvManager({ siteId }: { siteId: any }) {
     const [envs, setEnvs] = useState<{key: string, value: string}[]>([]);
 
@@ -114,7 +113,7 @@ function EnvManager({ siteId }: { siteId: any }) {
     );
 }
 
-// --- SUB COMPONENT: SSL MANAGER ---
+// --- SUB COMPONENT: SSL MANAGER (Sama seperti sebelumnya) ---
 function SSLManager({ siteId }: { siteId: any }) {
     const [loading, setLoading] = useState(false);
 
@@ -163,23 +162,23 @@ function SSLManager({ siteId }: { siteId: any }) {
     );
 }
 
+// --- SUB COMPONENT: GENERAL SETTINGS (DIPERBARUI UNTUK PHP) ---
 function GeneralSettings({ siteId }: { siteId: any }) {
     const [site, setSite] = useState<any>(null);
     const [newPort, setNewPort] = useState('');
+    const [phpVersion, setPhpVersion] = useState(''); // State untuk PHP
     const [loading, setLoading] = useState(false);
 
     // Load data site saat ini
     useEffect(() => {
         const token = localStorage.getItem('token');
-        // Kita butuh endpoint detail site (GET /sites/{id})
-        // Tapi endpoint list /sites kita ngembaliin array.
-        // Hack dikit: ambil semua, cari yg id cocok (biar gk bikin endpoint baru dlu)
         api.get('/sites', { headers: { Authorization: `Bearer ${token}` } })
             .then(res => {
                 const found = res.data.find((s: any) => s.id == siteId);
                 if(found) {
                     setSite(found);
                     setNewPort(found.app_port);
+                    setPhpVersion(found.php_version || '8.2'); // Default jika null
                 }
             });
     }, [siteId]);
@@ -193,10 +192,27 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                 headers: { Authorization: `Bearer ${token}` }
             });
             alert("Port berhasil diubah! Aplikasi sedang restart...");
-            // Refresh halaman atau state
             window.location.reload();
         } catch (err: any) {
             alert("Gagal: " + err.response?.data?.detail);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // [BARU] Fungsi Ganti Versi PHP
+    const handleSwitchPhp = async () => {
+        if(!confirm(`Switch ke PHP ${phpVersion}? Nginx akan di-reload.`)) return;
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            await api.put(`/sites/${siteId}/php`, { version: phpVersion }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            alert(`Berhasil switch ke PHP ${phpVersion}!`);
+            window.location.reload();
+        } catch (err: any) {
+            alert("Gagal: " + (err.response?.data?.detail || err.message));
         } finally {
             setLoading(false);
         }
@@ -218,27 +234,59 @@ function GeneralSettings({ siteId }: { siteId: any }) {
                         <p className="text-xs text-slate-600 mt-1">Domain tidak bisa diubah (Hapus & Buat baru jika ingin ganti).</p>
                     </div>
 
-                    <div>
-                        <label className="text-slate-400 text-sm block mb-1">Application Port</label>
-                        <div className="flex gap-2">
-                            <input
-                                type="number"
-                                value={newPort}
-                                onChange={(e) => setNewPort(e.target.value)}
-                                className="flex-1 bg-slate-950 text-white p-2 rounded border border-slate-700 outline-none focus:border-blue-500"
-                            />
-                            <button
-                                onClick={handleSavePort}
-                                disabled={loading || newPort == site.app_port}
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-4 rounded transition-colors disabled:opacity-50"
-                            >
-                                {loading ? <RefreshCw className="animate-spin" size={18}/> : 'Save'}
-                            </button>
+                    {/* LOGIC TAMPILAN BERDASARKAN TIPE WEBSITE */}
+
+                    {site.type === 'php' ? (
+                        // --- JIKA PHP ---
+                        <div>
+                            <label className="text-slate-400 text-sm block mb-1">PHP Version</label>
+                            <div className="flex gap-2">
+                                <select
+                                    value={phpVersion}
+                                    onChange={(e) => setPhpVersion(e.target.value)}
+                                    className="flex-1 bg-slate-950 text-white p-2 rounded border border-slate-700 outline-none focus:border-blue-500"
+                                >
+                                    <option value="7.4">PHP 7.4 (Legacy)</option>
+                                    <option value="8.0">PHP 8.0</option>
+                                    <option value="8.1">PHP 8.1</option>
+                                    <option value="8.2">PHP 8.2 (Stable)</option>
+                                </select>
+                                <button
+                                    onClick={handleSwitchPhp}
+                                    disabled={loading || phpVersion == site.php_version}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 rounded transition-colors disabled:opacity-50"
+                                >
+                                    {loading ? <RefreshCw className="animate-spin" size={18}/> : 'Switch'}
+                                </button>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-1">
+                                Pilih versi PHP yang sesuai dengan kebutuhan script Anda.
+                            </p>
                         </div>
-                        <p className="text-xs text-slate-500 mt-1">
-                            Port aplikasi Node.js/Python di localhost. Nginx akan meneruskan traffic ke sini.
-                        </p>
-                    </div>
+                    ) : (
+                        // --- JIKA NODE / PYTHON ---
+                        <div>
+                            <label className="text-slate-400 text-sm block mb-1">Application Port</label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="number"
+                                    value={newPort}
+                                    onChange={(e) => setNewPort(e.target.value)}
+                                    className="flex-1 bg-slate-950 text-white p-2 rounded border border-slate-700 outline-none focus:border-blue-500"
+                                />
+                                <button
+                                    onClick={handleSavePort}
+                                    disabled={loading || newPort == site.app_port}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 rounded transition-colors disabled:opacity-50"
+                                >
+                                    {loading ? <RefreshCw className="animate-spin" size={18}/> : 'Save'}
+                                </button>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-1">
+                                Port aplikasi Node.js/Python di localhost. Nginx akan meneruskan traffic ke sini.
+                            </p>
+                        </div>
+                    )}
                 </div>
             </div>
 

@@ -104,3 +104,20 @@ def run_installer(site, db_info, target_dir):
         print("🎉 WordPress Installed Successfully!")
     except Exception as e:
         print(f"❌ Install Error: {e}")
+
+
+@router.get("/php-versions")
+def get_installed_php_versions():
+    """
+    Cek folder /etc/php/ untuk melihat versi apa saja yang ada
+    """
+    try:
+        if os.path.exists("/etc/php"):
+            versions = os.listdir("/etc/php")
+            # Filter hanya angka (7.4, 8.2, dll)
+            versions = [v for v in versions if v[0].isdigit()]
+            versions.sort()
+            return {"versions": versions}
+        return {"versions": []}
+    except:
+        return {"versions": ["7.4", "8.0", "8.2"]} # Fallback simulasi

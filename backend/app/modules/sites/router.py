@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 import os
 from app.system.pm2_manager import start_app, delete_app, reload_app
 from app.system.nginx_manager import create_nginx_config, delete_nginx_config
+from app.modules.sites.schemas import SiteCreate, SiteResponse
 from app.core.database import get_db
 from app.modules.sites import models, schemas
 from app.modules.auth.deps import get_current_user
@@ -62,7 +63,8 @@ def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db),
     new_site = models.Site(
         domain=site.domain,
         type=site.type,
-        user_id=current_user.id, # Milik user yang login
+        php_version=site.php_version if site.type == "php" else None,  # Simpan versi PHP
+        user_id=current_user.id,
         app_port=assigned_port
     )
 
@@ -84,8 +86,16 @@ def create_site(site: schemas.SiteCreate, db: Session = Depends(get_db),
                 f.write("# Dummy Python App\nprint('Hello AlimPanel')")
             else:
                 f.write("// Dummy Node App\nconst http = require('http');\nconst server = http.createServer((req, res) => { res.writeHead(200); res.end('Hello SarahPanel!'); });\nserver.listen(process.env.PORT || 3000);")
+    else:
+        pass
 
     # 3. Start PM2 & Nginx
+    if site.type == "php":
+        index_php = os.path.join(base_dir, "index.php")
+        if not os.path.exists(index_php):
+            with open(index_php, "w") as f:
+                f.write(f"<?php echo '<h1>Hello from PHP {site.php_version} on AlimPanel</h1>'; phpinfo(); ?>")
+
     if new_site.type in ["node", "python"] and new_site.app_port:
         success, msg = start_app(
             domain=new_site.domain,
@@ -234,3 +244,32 @@ def update_site_port(
         start_app(site.domain, site.app_port, os.path.join(base_dir, script))
 
     return {"message": f"Port changed from {old_port} to {site.app_port}"}
+
+
+class UpdatePhpRequest(BaseModel):
+    version: str # "7.4", "8.0", "8.2"
+
+@router.put("/{site_id}/php")
+def update_php_version(
+    site_id: int,
+    payload: UpdatePhpRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Secure Get
+    site = get_user_site(site_id, current_user.id, db)
+
+    if site.type != "php":
+        raise HTTPException(400, "This site is not a PHP application")
+
+    # Update DB
+    site.php_version = payload.version
+    db.commit()
+
+    # Regenerate Nginx dengan versi baru
+    create_nginx_config(site.domain, 0, "php", site.php_version)
+
+    # Opsional: Restart PHP-FPM service (via sudo) biar fresh
+    # subprocess.run(["sudo", "systemctl", "restart", f"php{site.php_version}-fpm"], check=False)
+
+    return {"message": f"Switched to PHP {site.php_version}"}

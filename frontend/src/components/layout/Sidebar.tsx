@@ -43,7 +43,7 @@ export default function Sidebar() {
         <aside className="w-64 bg-slate-900 border-r border-slate-800 h-screen fixed left-0 top-0 flex flex-col">
             <div className="p-6 border-b border-slate-800">
                 <h1 className="text-xl font-bold text-white tracking-wider">
-                    Alim<span className="text-blue-500">Panel</span>
+                    Sarah<span className="text-blue-500">Panel</span>
                 </h1>
             </div>
 

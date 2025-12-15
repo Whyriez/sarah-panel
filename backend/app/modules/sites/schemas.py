@@ -4,9 +4,10 @@ from typing import Optional
 class SiteBase(BaseModel):
     domain: str
     type: str # php, node, python
+    php_version: Optional[str] = "8.2" # Default PHP 8.2 jika type=php
 
 class SiteCreate(SiteBase):
-    pass # Nanti bisa ditambah config lain
+    pass
 
 class SiteResponse(SiteBase):
     id: int

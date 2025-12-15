@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
@@ -17,3 +18,5 @@ class User(Base):
     system_username = Column(String, unique=True, nullable=True)
 
     is_active = Column(Boolean, default=True)
+
+    sites = relationship("Site", back_populates="owner")
