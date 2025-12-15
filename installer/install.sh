@@ -65,7 +65,9 @@ echo "⚙️ Creating System Service..."
 # [BARU] 1. Buat user sistem khusus 'alimpanel' (jika belum ada)
 # -r: system account, -s /bin/false: tidak bisa login shell (aman)
 if ! id -u alimpanel > /dev/null 2>&1; then
-    useradd -r -s /bin/false alimpanel
+    # -m: Create Home Directory
+    # -d: Tentukan path home directory
+    useradd -r -m -d /home/alimpanel -s /bin/false alimpanel
 fi
 
 # [BARU] 2. Ubah kepemilikan folder backend ke user 'alimpanel'
