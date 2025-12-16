@@ -38,7 +38,7 @@ ufw allow 22/tcp   # SSH
 ufw allow 80/tcp   # HTTP
 ufw allow 443/tcp  # HTTPS
 ufw allow ${PANEL_PORT}/tcp # Panel Port
-# ufw enable # Jangan auto enable dulu takut ke-lock, user harus enable manual nanti
+ufw enable # Jangan auto enable dulu takut ke-lock, user harus enable manual nanti
 echo "✅ Firewall rules added (Run 'ufw enable' manually later)"
 
 # Install Dependencies
@@ -177,6 +177,29 @@ alimpanel ALL=(root) NOPASSWD: /usr/bin/apt-get autoremove -y
 alimpanel ALL=(root) NOPASSWD: /usr/bin/tee /etc/php/*/fpm/pool.d/*
 alimpanel ALL=(root) NOPASSWD: /usr/bin/rm /etc/php/*/fpm/pool.d/*
 EOF
+
+echo "🛡️ Installing Fail2Ban..."
+apt install -y fail2ban
+
+# Buat konfigurasi Jail Local (agar config asli tidak tertimpa update)
+cat > /etc/fail2ban/jail.local <<EOF
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+bantime = 3600 # Ban 1 jam
+
+[nginx-http-auth]
+enabled = true
+filter = nginx-http-auth
+port = http,https
+logpath = /var/log/nginx/error.log
+maxretry = 3
+EOF
+
+systemctl restart fail2ban
 
 # 6. SETUP NGINX UTAMA
 echo "🌐 Configuring Nginx for Panel UI (Port ${PANEL_PORT})..."

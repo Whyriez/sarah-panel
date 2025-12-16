@@ -12,3 +12,4 @@ jinja2
 aiofiles
 python-jose
 email-validator
+slowapi
