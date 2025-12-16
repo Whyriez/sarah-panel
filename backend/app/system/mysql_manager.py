@@ -1,11 +1,17 @@
 from sqlalchemy import create_engine, text
 import os
+from dotenv import load_dotenv
+
+# Load environment variables dari file .env
+load_dotenv()
+
+# Ambil password root dari .env (yang digenerate oleh install.sh tadi)
+DB_ROOT_PASS = os.getenv("MYSQL_ROOT_PASSWORD", "")
 
 # --- KONFIGURASI ROOT MYSQL ---
-# Sesuaikan dengan XAMPP/MySQL lokal Abang
 # Format: mysql+pymysql://USER:PASSWORD@HOST:PORT
-MYSQL_ROOT_URL = "mysql+pymysql://root:@localhost:3306"
-
+# Kita gunakan f-string untuk memasukkan password secara dinamis
+MYSQL_ROOT_URL = f"mysql+pymysql://root:{DB_ROOT_PASS}@localhost:3306"
 
 def create_real_database(db_name: str, db_user: str, db_pass: str):
     try:
@@ -16,8 +22,7 @@ def create_real_database(db_name: str, db_user: str, db_pass: str):
             # 1. Buat Database
             conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{db_name}`;"))
 
-            # 2. Buat User (Jika belum ada)
-            # Di MySQL 8, syntax CREATE USER dan GRANT dipisah
+            # 2. Buat User (Syntax kompatibel MySQL 8 & MariaDB)
             conn.execute(text(f"CREATE USER IF NOT EXISTS '{db_user}'@'%' IDENTIFIED BY '{db_pass}';"))
 
             # 3. Kasih Hak Akses (Privileges)
@@ -28,12 +33,9 @@ def create_real_database(db_name: str, db_user: str, db_pass: str):
             return True
 
     except Exception as e:
-        # Fallback ke MODE SIMULASI jika MySQL mati/gak ada (biar coding gak error)
-        print(f"⚠️ MYSQL ERROR (Simulation Mode Active): {e}")
-        print(f"🖥️ [SIMULASI] CREATE DATABASE {db_name}")
-        print(f"🖥️ [SIMULASI] CREATE USER {db_user} PASS {db_pass}")
-        return True  # Anggap sukses biar UI jalan
-
+        print(f"⚠️ MYSQL ERROR: {e}")
+        # Jangan fallback ke simulasi jika errornya autentikasi, supaya ketahuan kalau ada salah config
+        return False
 
 def delete_real_database(db_name: str, db_user: str):
     try:
