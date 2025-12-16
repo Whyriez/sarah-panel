@@ -1,6 +1,8 @@
 import os
 import shutil
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+import zipfile
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
 from pydantic import BaseModel
 from app.modules.auth.deps import get_current_user
 from app.modules.users.models import User
@@ -207,3 +209,55 @@ def delete_item(site_id: int, path: str, db: Session = Depends(get_db), current_
         shutil.rmtree(target_path)
 
     return {"message": "Deleted"}
+
+
+class ExtractRequest(BaseModel):
+    archive_path: str   # Lokasi file zip (relatif terhadap root site)
+    destination_path: str # Folder tujuan (relatif terhadap root site)
+
+@router.post("/extract/{site_id}")
+def extract_file(
+        site_id: int,
+        payload: ExtractRequest,
+        background_tasks: BackgroundTasks,  # Import ini sudah ditambahkan di atas
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)  # Pakai ini, bukan get_current_active_user
+):
+    # 1. Validasi Path Zip
+    zip_full_path, site_root = get_safe_path(site_id, payload.archive_path, current_user, db)
+
+    # 2. Validasi Path Tujuan
+    dest_full_path, _ = get_safe_path(site_id, payload.destination_path, current_user, db)
+
+    if not os.path.exists(zip_full_path) or not zipfile.is_zipfile(zip_full_path):
+        raise HTTPException(status_code=400, detail="File is not a valid zip archive")
+
+    # Fungsi internal untuk dijalankan di background
+    def safe_extract_task(zip_path, dest_dir, owner_user="alimpanel"):
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                for member in zf.infolist():
+                    # Block Zip Slip (Path Traversal)
+                    # Pastikan file yang diekstrak tidak mencoba keluar dari folder tujuan
+                    member_path = os.path.join(dest_dir, member.filename)
+                    if not os.path.commonpath([dest_dir, member_path]).startswith(dest_dir):
+                        print(f"⚠️ Security Warning: Skipped {member.filename} (Zip Slip attempt)")
+                        continue
+
+                    zf.extract(member, dest_dir)
+
+            # Fix Permission Recursive setelah extract
+            import platform
+            if platform.system() != "Windows":
+                # Jalankan chown -R agar user alimpanel bisa akses filenya
+                # Menggunakan subprocess lebih aman/mudah untuk recursive
+                import subprocess
+                subprocess.run(["chown", "-R", f"{owner_user}:{owner_user}", dest_dir], check=False)
+
+        except Exception as e:
+            print(f"❌ Extract Error: {e}")
+
+    # Jalankan task di background agar request tidak timeout untuk file besar
+    background_tasks.add_task(safe_extract_task, zip_full_path, dest_full_path)
+
+    return {"message": "Extraction started in background"}
