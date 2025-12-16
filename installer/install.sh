@@ -184,7 +184,22 @@ cat > /etc/nginx/sites-available/alimpanel <<EOF
 server {
     listen ${PANEL_PORT} default_server;
     server_name _;
+    root /var/www/html; # Definisi Root agar bisa baca symlink phpmyadmin
 
+    # 1. Config Khusus phpMyAdmin (TARUH SEBELUM location /)
+    location ^~ /phpmyadmin {
+        alias /var/www/html/phpmyadmin;
+        index index.php index.html index.htm;
+
+        location ~ \.php$ {
+            include snippets/fastcgi-php.conf;
+            fastcgi_param SCRIPT_FILENAME \$request_filename;
+            # Pastikan versi PHP ini sesuai dengan yang terinstall default di Ubuntu kamu (biasanya 8.1 atau 8.2)
+            fastcgi_pass unix:/run/php/php8.2-fpm.sock; 
+        }
+    }
+
+    # 2. Frontend Proxy (Next.js)
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
@@ -194,6 +209,7 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
+    # 3. Backend API Proxy
     location /api/ {
         rewrite ^/api/(.*) /\$1 break;
         proxy_pass http://127.0.0.1:8000;
@@ -225,8 +241,11 @@ pm2 startup systemd -u alimpanel --hp /home/alimpanel | bash
 pm2 save
 
 mkdir -p /var/www/sarahpanel
-chown -R alimpanel:alimpanel /var/www/sarahpanel
+chown -R www-data:www-data /var/www/sarahpanel
 chmod -R 755 /var/www/sarahpanel
+
+# Masukkan user alimpanel ke group www-data agar backend tetap bisa akses
+usermod -aG www-data alimpanel
 
 echo "✅ INSTALLATION COMPLETE!"
 echo "🔑 MySQL Root Password saved in backend/.env"

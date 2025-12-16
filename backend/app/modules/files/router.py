@@ -134,7 +134,7 @@ def create_item(
         # Di Windows ini diabaikan, di Linux penting
         import platform
         if platform.system() != "Windows":
-            shutil.chown(new_item_path, user="alimpanel", group="alimpanel")
+            shutil.chown(new_item_path, user="www-data", group="www-data")
 
     except Exception as e:
         raise HTTPException(500, f"Error creating item: {str(e)}")

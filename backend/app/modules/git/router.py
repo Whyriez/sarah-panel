@@ -45,7 +45,7 @@ def setup_git(
     site.auto_deploy = True
     db.commit()
 
-    target_dir = os.path.join(os.getcwd(), "www_data", site.domain)
+    target_dir = os.path.join(SITES_BASE_DIR, site.domain)
 
     # [FIX LEBIH GALAK] BERSIHKAN FOLDER
     if os.path.exists(target_dir):
@@ -110,7 +110,7 @@ async def git_webhook(
 
 
 def perform_deploy(site):
-    target_dir = os.path.join(os.getcwd(), "www_data", site.domain)
+    target_dir = os.path.join(SITES_BASE_DIR, site.domain)
     print(f"🚀 Deploying {site.domain} from Git...")
 
     # 1. Git Pull

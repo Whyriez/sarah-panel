@@ -11,12 +11,15 @@ from app.modules.sites.models import Site
 from app.modules.databases.models import Database
 from app.modules.auth.deps import get_current_user
 from app.modules.users.models import User
+from dotenv import load_dotenv
+load_dotenv()
 
 router = APIRouter(tags=["Backups"])
 
 BACKUP_ROOT = os.path.join(os.getcwd(), "backups")
 os.makedirs(BACKUP_ROOT, exist_ok=True)
 
+DB_ROOT_PASS = os.getenv("MYSQL_ROOT_PASSWORD")
 
 # Helper: Zip Folder
 def zip_folder(folder_path, zip_handle):
@@ -79,8 +82,8 @@ def perform_backup(site, db_session, zip_filepath):
                 # Di Linux biasanya langsung "mysqldump"
                 cmd = [
                     "mysqldump",
-                    "-u", "root",  # Asumsi root panel punya akses
-                    # "-pPASSWORD", # Kalau ada password root
+                    "-u", "root",
+                    f"-p{DB_ROOT_PASS}",
                     database.name
                 ]
 
