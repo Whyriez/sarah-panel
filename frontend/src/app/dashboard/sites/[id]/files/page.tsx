@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import api from '@/lib/api';
-import { Folder, FileText, ArrowLeft, Save, Upload, Trash2, Home, FilePlus, FolderPlus, Edit3, Terminal, X } from 'lucide-react';
+// [BARU] Tambah ikon 'Archive' untuk tombol Unzip
+import { Folder, FileText, ArrowLeft, Save, Upload, Trash2, Home, FilePlus, FolderPlus, Edit3, Terminal, X, Archive } from 'lucide-react';
 import TerminalView from '@/components/ui/TerminalView';
 
 export default function FileManagerPage() {
@@ -11,17 +12,15 @@ export default function FileManagerPage() {
     const [path, setPath] = useState(''); // Current path (relative)
     const [items, setItems] = useState<any[]>([]);
 
-
     // Editor State
     const [editingFile, setEditingFile] = useState<string | null>(null);
     const [fileContent, setFileContent] = useState('');
     const [showTerminal, setShowTerminal] = useState(false);
     const [loading, setLoading] = useState(false);
 
-
     const fetchFiles = async () => {
         try {
-            // [FIX] Gunakan encodeURIComponent untuk path
+            // [FIX] Gunakan encodeURIComponent untuk path agar karakter aneh aman
             const res = await api.get(`/files/list/${id}`, {
                 params: { path: path }
             });
@@ -49,7 +48,7 @@ export default function FileManagerPage() {
         setPath(parts.join('/'));
     };
 
-    // --- FITUR BARU: CREATE & RENAME ---
+    // --- FITUR BARU: CREATE, RENAME, & EXTRACT ---
 
     const handleCreate = async (type: 'file' | 'folder') => {
         const name = prompt(`Enter new ${type} name:`);
@@ -68,7 +67,7 @@ export default function FileManagerPage() {
     };
 
     const handleRename = async (e: React.MouseEvent, oldName: string) => {
-        e.stopPropagation(); // Biar gak masuk folder pas klik rename
+        e.stopPropagation();
         const newName = prompt("Enter new name:", oldName);
         if (!newName || newName === oldName) return;
 
@@ -84,10 +83,42 @@ export default function FileManagerPage() {
         }
     };
 
+    // [BARU] Fungsi Extract Zip
+    const handleExtract = async (e: React.MouseEvent, fileName: string) => {
+        e.stopPropagation();
+
+        // Konfirmasi sederhana
+        if (!confirm(`Extract ${fileName} to current folder?`)) return;
+
+        const archivePath = path ? `${path}/${fileName}` : fileName;
+
+        try {
+            // Panggil endpoint backend baru
+            await api.post(`/files/extract/${id}`, {
+                archive_path: archivePath,
+                destination_path: path || "" // Extract ke folder yang sedang dibuka
+            });
+
+            alert("Extraction started in background! Refresh list in a few seconds.");
+
+            // Auto refresh setelah 2 detik
+            setTimeout(fetchFiles, 2000);
+
+        } catch (err: any) {
+            alert(err.response?.data?.detail || "Failed to extract");
+        }
+    };
+
     // ------------------------------------
 
     // Editor Logic
     const openEditor = async (filename: string) => {
+        // Cek ekstensi, jangan buka zip di editor text
+        if (filename.endsWith('.zip')) {
+            alert("Cannot edit zip file directly. Please extract it.");
+            return;
+        }
+
         const filePath = path ? `${path}/${filename}` : filename;
         setLoading(true);
         try {
@@ -105,7 +136,7 @@ export default function FileManagerPage() {
         try {
             await api.post(`/files/save/${id}`, { path: editingFile, content: fileContent });
             alert("File Saved!");
-            setEditingFile(null); // Close editor
+            setEditingFile(null);
         } catch (err) { alert("Failed to save"); }
         setLoading(false);
     };
@@ -121,14 +152,13 @@ export default function FileManagerPage() {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            // Ambil URL dari ENV agar dinamis
             const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
             const safePath = encodeURIComponent(path || "");
 
-            // Hapus /api di akhir backendUrl jika ada (untuk fetch manual)
-            // Tapi karena endpointmu /api/files/upload, kita asumsikan backendUrl sudah termasuk /api
-            // Cek api.ts kamu: const API_URL = .../api (biasanya)
-            // Jadi kita pakai API_URL langsung kalau bisa, tapi pakai fetch manual biar aman Multipart-nya
+            // Pastikan URL backend bersih (hapus trailing slash jika ada)
+            // const cleanBackendUrl = backendUrl.replace(/\/$/, "");
+            // Anggap user sudah set env dengan benar, biasanya api.ts menghandle base url,
+            // tapi untuk upload form-data manual kita fetch langsung.
 
             const response = await fetch(`${backendUrl}/files/upload/${id}?path=${safePath}`, {
                 method: 'POST',
@@ -198,11 +228,9 @@ export default function FileManagerPage() {
                     <span>{path}</span>
                 </div>
                 <div className="flex gap-2">
-                    {/* Tombol New Folder */}
                     <button onClick={() => handleCreate('folder')} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2 transition-colors">
                         <FolderPlus size={16}/> New Folder
                     </button>
-                    {/* Tombol New File */}
                     <button onClick={() => handleCreate('file')} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2 transition-colors">
                         <FilePlus size={16}/> New File
                     </button>
@@ -212,7 +240,6 @@ export default function FileManagerPage() {
                     >
                         <Terminal size={16}/> Terminal
                     </button>
-                    {/* Tombol Upload */}
                     <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm flex items-center gap-2 transition-colors">
                         <Upload size={16}/> Upload
                         <input type="file" className="hidden" onChange={handleUpload}/>
@@ -243,7 +270,12 @@ export default function FileManagerPage() {
                             {item.type === 'folder' ? (
                                 <Folder className="text-yellow-500" size={20}/>
                             ) : (
-                                <FileText className="text-blue-400" size={20}/>
+                                // Ubah ikon jika itu file ZIP
+                                item.name.endsWith('.zip') ? (
+                                    <Archive className="text-orange-400" size={20}/>
+                                ) : (
+                                    <FileText className="text-blue-400" size={20}/>
+                                )
                             )}
                             <span className={`text-sm ${item.type === 'folder' ? 'text-white font-medium' : 'text-slate-300'}`}>
                                 {item.name}
@@ -255,7 +287,17 @@ export default function FileManagerPage() {
                                 {item.type === 'file' && (item.size / 1024).toFixed(1) + ' KB'}
                             </span>
 
-                            {/* Tombol Rename */}
+                            {/* [BARU] Tombol Extract (Hanya muncul kalau file zip) */}
+                            {item.type === 'file' && item.name.endsWith('.zip') && (
+                                <button
+                                    onClick={(e) => handleExtract(e, item.name)}
+                                    className="text-slate-600 hover:text-orange-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="Extract Here"
+                                >
+                                    <Archive size={16}/>
+                                </button>
+                            )}
+
                             <button
                                 onClick={(e) => handleRename(e, item.name)}
                                 className="text-slate-600 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -264,7 +306,6 @@ export default function FileManagerPage() {
                                 <Edit3 size={16}/>
                             </button>
 
-                            {/* Tombol Delete */}
                             <button
                                 onClick={(e) => { e.stopPropagation(); handleDelete(item.name); }}
                                 className="text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -283,24 +324,14 @@ export default function FileManagerPage() {
             {showTerminal && (
                 <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="w-full max-w-6xl relative">
-                        {/* Header Modal */}
                         <div className="flex justify-between items-center mb-2 bg-slate-900/80 p-2 rounded-t-xl border-x border-t border-slate-700">
                             <h3 className="text-white font-mono flex items-center gap-2 px-2">
                                 <Terminal size={18} className="text-green-500"/>
                                 Quick Terminal
                             </h3>
-                            <button
-                                onClick={() => setShowTerminal(false)}
-                                className="text-slate-400 hover:text-white hover:bg-red-600/20 p-1.5 rounded transition-all"
-                            >
-                                <X size={20}/>
-                            </button>
+                            <button onClick={() => setShowTerminal(false)} className="text-slate-400 hover:text-white p-1.5"><X size={20}/></button>
                         </div>
-
-                        {/* Component TerminalView */}
-                        {/* Kita bungkus div agar styling internal TerminalView tidak 'jebol' */}
                         <div className="bg-slate-950 rounded-b-xl overflow-hidden border border-slate-700 shadow-2xl">
-                            {/* Pastikan id dikirim sebagai string (handle array case dari Next.js) */}
                             <TerminalView siteId={Array.isArray(id) ? id[0] : id} />
                         </div>
                     </div>
