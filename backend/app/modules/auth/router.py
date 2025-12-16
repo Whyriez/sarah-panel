@@ -9,6 +9,7 @@ router = APIRouter(tags=["Authentication"])
 
 
 @router.post("/auth/token")
+@limiter.limit("5/minute")
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # 1. Cari user di database berdasarkan username
     user = db.query(models.User).filter(models.User.username == form_data.username).first()
