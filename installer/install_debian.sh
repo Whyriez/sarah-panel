@@ -2,7 +2,7 @@
 
 # Pastikan script dijalankan sebagai root
 if [ "$EUID" -ne 0 ]; then
-  echo "❌ Please run as root (sudo bash install.sh)"
+  echo "❌ Please run as root (bash install_debian.sh)"
   exit
 fi
 
@@ -12,9 +12,9 @@ PANEL_PORT=8888
 MYSQL_ROOT_PASS=$(openssl rand -base64 24)
 echo "🔑 Generated MySQL Password: $MYSQL_ROOT_PASS"
 
-echo "🚀 STARTING ALIMPANEL INSTALLATION..."
+echo "🚀 STARTING ALIMPANEL INSTALLATION (DEBIAN EDITION)..."
 
-# --- 0. SETUP SWAP MEMORY (Penting untuk VPS RAM < 2GB) ---
+# --- 0. SETUP SWAP MEMORY ---
 echo "💾 Checking Swap Memory..."
 if [ $(free -m | grep Swap | awk '{print $2}') -eq 0 ]; then
     echo "⚠️ No Swap detected. Creating 2GB Swap file..."
@@ -28,10 +28,11 @@ else
     echo "✅ Swap already exists."
 fi
 
-# 1. UPDATE SYSTEM & FIREWALL
+# 1. UPDATE SYSTEM & INSTALL BASIC TOOLS
 echo "📦 Updating System..."
 apt update && apt upgrade -y
-apt install -y ufw
+# Install sudo, curl, gnupg2 (Wajib di Debian Minimal)
+apt install -y sudo curl wget gnupg2 lsb-release ca-certificates apt-transport-https ufw
 
 # --- SETUP FIREWALL (UFW) ---
 echo "🛡️ Configuring Firewall..."
@@ -41,26 +42,31 @@ ufw allow 22/tcp   # SSH
 ufw allow 80/tcp   # HTTP
 ufw allow 443/tcp  # HTTPS
 ufw allow ${PANEL_PORT}/tcp # Panel Port
-# [FIX] Paksa Yes agar tidak stuck
+# Paksa Yes agar tidak stuck
 echo "y" | ufw enable
 echo "✅ Firewall rules added."
 
-# Install Dependencies
-apt install -y python3-pip python3-venv nginx git mariadb-server curl unzip certbot python3-certbot-nginx software-properties-common
+# Install Dependencies Dasar Panel
+apt install -y python3-pip python3-venv nginx git mariadb-server unzip certbot python3-certbot-nginx
 
 # --- CONFIG PHPMYADMIN (SILENT) ---
+echo "🐘 Configuring phpMyAdmin (Silent)..."
 echo "phpmyadmin phpmyadmin/dbconfig-install boolean true" | debconf-set-selections
 echo "phpmyadmin phpmyadmin/app-password-confirm password $MYSQL_ROOT_PASS" | debconf-set-selections
 echo "phpmyadmin phpmyadmin/mysql/admin-pass password $MYSQL_ROOT_PASS" | debconf-set-selections
 echo "phpmyadmin phpmyadmin/mysql/app-pass password $MYSQL_ROOT_PASS" | debconf-set-selections
+# Penting: Pilih 'None' (kosong) agar tidak install Apache
 echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect" | debconf-set-selections
 
-# Install dengan mode non-interactive
+# Install phpMyAdmin
 DEBIAN_FRONTEND=noninteractive apt install -y phpmyadmin
 
-# Tambahkan Repository PHP Ondrej
-echo "🐘 Adding PHP Repository..."
-add-apt-repository ppa:ondrej/php -y
+# --- [KHUSUS DEBIAN] SETUP PHP REPOSITORY (SURY.ORG) ---
+echo "🐘 Adding PHP Repository (Sury.org)..."
+# Download GPG Key
+wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg
+# Tambahkan Repo sesuai codename Debian (bullseye/bookworm)
+echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/php.list
 apt update
 
 # Install Versi PHP Populer
@@ -74,11 +80,11 @@ done
 # --- AMANKAN MYSQL DATABASE ---
 echo "🔒 Securing MySQL..."
 
-# Set password root MySQL (Tanpa interaksi user)
+# Set password root MySQL
 mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASS}'; FLUSH PRIVILEGES;"
 echo "✅ MySQL Root Password set."
 
-# Buat file kredensial agar root sistem tetap bisa akses mysql tanpa password
+# Buat file kredensial root
 cat > /root/.my.cnf <<EOF
 [client]
 user=root
@@ -87,6 +93,7 @@ EOF
 
 # 2. INSTALL NODE.JS
 echo "📦 Installing Node.js..."
+# NodeSource support Debian juga
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt install -y nodejs build-essential
 npm install -g pm2
@@ -98,7 +105,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# --- Generate .env Backend dengan Password MySQL ---
+# --- Generate .env Backend ---
 if [ ! -f .env ]; then
     echo "⚙️ Generating Backend .env..."
     SECRET=$(openssl rand -hex 32)
@@ -107,7 +114,7 @@ if [ ! -f .env ]; then
 SECRET_KEY=${SECRET}
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 DATABASE_URL=sqlite:///./sarahpanel.db
-# [PENTING] Simpan Password MySQL Root di sini agar Backend bisa baca
+# Password Root MySQL
 MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASS}"
 EOF
 fi
@@ -116,20 +123,20 @@ deactivate
 cd ..
 
 # Buat Symlink phpMyAdmin
-sudo ln -s /usr/share/phpmyadmin /var/www/html/phpmyadmin
-# Fix Permission phpMyAdmin
-sudo chown -R www-data:www-data /usr/share/phpmyadmin
+ln -s /usr/share/phpmyadmin /var/www/html/phpmyadmin
+# Fix Permission
+chown -R www-data:www-data /usr/share/phpmyadmin
 
 # 4. SETUP FRONTEND
 echo "⚛️ Setting up Frontend..."
 cd frontend
-# [FIX] Gunakan relative path untuk API URL agar tidak hardcode IP
+# Relative path API URL
 echo "NEXT_PUBLIC_API_URL=/api" > .env.local
 npm install
 npm run build
 cd ..
 
-# 5. SETUP SYSTEMD (User & Permission)
+# 5. SETUP SYSTEMD
 echo "⚙️ Creating System Service..."
 
 if ! id -u alimpanel > /dev/null 2>&1; then
@@ -251,7 +258,7 @@ systemctl restart nginx
 # 7. START FRONTEND
 echo "🚀 Starting Frontend..."
 
-# [FIX] Berikan kepemilikan ke user alimpanel
+# Berikan kepemilikan ke user alimpanel
 chown -R alimpanel:alimpanel ${INSTALL_DIR}/frontend
 
 cd frontend
