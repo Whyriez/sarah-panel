@@ -6,6 +6,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from app.core.init_db import init_db
+from app.core.limiter import limiter
 
 # Import Database & Models
 from app.core.database import engine, Base
@@ -38,7 +39,6 @@ project_models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="AlimPanel API", version="0.1.0")
 
 # Setup Limiter
-limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

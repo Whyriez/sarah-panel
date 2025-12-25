@@ -276,7 +276,7 @@ pm2 startup systemd -u alimpanel --hp /home/alimpanel | bash
 
 mkdir -p /var/www/sarahpanel
 chown -R www-data:www-data /var/www/sarahpanel
-chmod -R 755 /var/www/sarahpanel
+chmod -R 775 /var/www/sarahpanel
 
 # Masukkan user alimpanel ke group www-data
 usermod -aG www-data alimpanel

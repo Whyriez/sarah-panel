@@ -307,7 +307,7 @@ pm2 startup systemd -u alimpanel --hp /home/alimpanel | bash
 # Buat folder kerja web
 mkdir -p /var/www/sarahpanel
 chown -R nginx:nginx /var/www/sarahpanel # User nginx di Alma
-chmod -R 755 /var/www/sarahpanel
+chmod -R 775 /var/www/sarahpanel
 
 # Masukkan user alimpanel ke group nginx
 usermod -aG nginx alimpanel

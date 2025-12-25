@@ -9,7 +9,7 @@ from app.modules.users.models import User
 from app.core.database import get_db
 from sqlalchemy.orm import Session
 from app.modules.sites.models import Site
-from app.modules.sites.router import get_user_site  # Reuse helper secure
+from app.modules.sites.router import get_user_site
 
 router = APIRouter(prefix="/files", tags=["File Manager"])
 
@@ -18,19 +18,18 @@ SITES_BASE_DIR = "/var/www/sarahpanel"
 
 # Helper: Validasi Path (Anti-Hacking & Permission)
 def get_safe_path(site_id: int, relative_path: str, user: User, db: Session):
-    # 1. Cari Site (Gunakan helper secure dari modules/sites)
+    # 1. Cari Site
     site = get_user_site(site_id, user.id, db)
 
     # 2. Tentukan Root Folder Site
     base_dir = os.path.abspath(os.path.join(SITES_BASE_DIR, site.domain))
 
-    # Buat folder jika belum ada (safety net)
+    # Buat folder jika belum ada
     if not os.path.exists(base_dir):
         os.makedirs(base_dir, exist_ok=True)
 
     # 3. Gabungkan path
-    # relative_path bisa kosong ("") atau ("css/style.css")
-    clean_rel = relative_path.lstrip("/").replace("..", "")  # Basic sanitization
+    clean_rel = relative_path.lstrip("/").replace("..", "")
     target_path = os.path.abspath(os.path.join(base_dir, clean_rel))
 
     # 4. Security Check (Jail)
@@ -52,12 +51,16 @@ def list_files(site_id: int, path: str = "", db: Session = Depends(get_db),
     items = []
     with os.scandir(target_path) as entries:
         for entry in entries:
-            items.append({
-                "name": entry.name,
-                "type": "folder" if entry.is_dir() else "file",
-                "size": entry.stat().st_size if entry.is_file() else 0,
-                # "mtime": entry.stat().st_mtime
-            })
+            try:
+                stat = entry.stat()
+                items.append({
+                    "name": entry.name,
+                    "type": "folder" if entry.is_dir() else "file",
+                    "size": stat.st_size if entry.is_file() else 0,
+                    "mtime": stat.st_mtime
+                })
+            except FileNotFoundError:
+                continue  # Skip jika file terhapus saat scan
 
     # Sort: Folder dulu, baru file
     items.sort(key=lambda x: (x['type'] != 'folder', x['name']))
@@ -99,11 +102,11 @@ def save_file(site_id: int, payload: FileSave, db: Session = Depends(get_db),
     return {"message": "Saved"}
 
 
-# 4. [BARU] CREATE NEW FILE / FOLDER
+# 4. CREATE NEW FILE / FOLDER
 class CreateItemRequest(BaseModel):
-    path: str  # folder/subfolder
-    name: str  # nama file baru
-    type: str  # 'file' atau 'folder'
+    path: str
+    name: str
+    type: str
 
 
 @router.post("/create/{site_id}")
@@ -113,10 +116,7 @@ def create_item(
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    # Dapatkan path induk
     parent_path, _ = get_safe_path(site_id, payload.path, current_user, db)
-
-    # Path lengkap item baru
     new_item_path = os.path.join(parent_path, payload.name)
 
     if os.path.exists(new_item_path):
@@ -124,17 +124,14 @@ def create_item(
 
     try:
         if payload.type == "folder":
-            os.makedirs(new_item_path)
+            os.makedirs(new_item_path, mode=0o755)  # Folder Permission 755
         else:
-            # Buat file kosong
             with open(new_item_path, 'w') as f:
                 pass
+            os.chmod(new_item_path, 0o644)  # File Permission 644
 
-                # [PENTING] Set owner ke alimpanel agar bisa diedit via system
-        # Di Windows ini diabaikan, di Linux penting
-        import platform
-        if platform.system() != "Windows":
-            shutil.chown(new_item_path, user="www-data", group="www-data")
+        # [FIX] HAPUS shutil.chown KE www-data.
+        # File otomatis milik 'alimpanel' (user service), Nginx bisa baca (karena 644/755).
 
     except Exception as e:
         raise HTTPException(500, f"Error creating item: {str(e)}")
@@ -142,9 +139,9 @@ def create_item(
     return {"message": f"{payload.type} created successfully"}
 
 
-# 5. [BARU] RENAME ITEM
+# 5. RENAME ITEM
 class RenameItemRequest(BaseModel):
-    path: str  # Path folder saat ini
+    path: str
     old_name: str
     new_name: str
 
@@ -157,7 +154,6 @@ def rename_item(
         current_user: User = Depends(get_current_user)
 ):
     parent_path, _ = get_safe_path(site_id, payload.path, current_user, db)
-
     old_path = os.path.join(parent_path, payload.old_name)
     new_path = os.path.join(parent_path, payload.new_name)
 
@@ -187,13 +183,15 @@ async def upload_file(
     target_dir, _ = get_safe_path(site_id, path, current_user, db)
     file_path = os.path.join(target_dir, file.filename)
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
 
-    # Fix permission for uploaded file
-    import platform
-    if platform.system() != "Windows":
-        shutil.chown(file_path, user="alimpanel", group="alimpanel")
+        # Set permission agar bisa dibaca web server
+        os.chmod(file_path, 0o644)
+
+    except Exception as e:
+        raise HTTPException(500, f"Upload failed: {str(e)}")
 
     return {"message": f"Uploaded {file.filename}"}
 
@@ -203,61 +201,55 @@ async def upload_file(
 def delete_item(site_id: int, path: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     target_path, _ = get_safe_path(site_id, path, current_user, db)
 
-    if os.path.isfile(target_path):
-        os.remove(target_path)
-    elif os.path.isdir(target_path):
-        shutil.rmtree(target_path)
+    try:
+        if os.path.isfile(target_path):
+            os.remove(target_path)
+        elif os.path.isdir(target_path):
+            shutil.rmtree(target_path)
+    except Exception as e:
+        raise HTTPException(500, f"Delete failed: {str(e)}")
 
     return {"message": "Deleted"}
 
 
+# 8. EXTRACT ZIP
 class ExtractRequest(BaseModel):
-    archive_path: str   # Lokasi file zip (relatif terhadap root site)
-    destination_path: str # Folder tujuan (relatif terhadap root site)
+    archive_path: str
+    destination_path: str
+
 
 @router.post("/extract/{site_id}")
 def extract_file(
         site_id: int,
         payload: ExtractRequest,
-        background_tasks: BackgroundTasks,  # Import ini sudah ditambahkan di atas
+        background_tasks: BackgroundTasks,
         db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user)  # Pakai ini, bukan get_current_active_user
+        current_user: User = Depends(get_current_user)
 ):
-    # 1. Validasi Path Zip
-    zip_full_path, site_root = get_safe_path(site_id, payload.archive_path, current_user, db)
-
-    # 2. Validasi Path Tujuan
+    zip_full_path, _ = get_safe_path(site_id, payload.archive_path, current_user, db)
     dest_full_path, _ = get_safe_path(site_id, payload.destination_path, current_user, db)
 
     if not os.path.exists(zip_full_path) or not zipfile.is_zipfile(zip_full_path):
         raise HTTPException(status_code=400, detail="File is not a valid zip archive")
 
-    # Fungsi internal untuk dijalankan di background
-    def safe_extract_task(zip_path, dest_dir, owner_user="alimpanel"):
+    # Fungsi Background
+    def safe_extract_task(zip_path, dest_dir):
         try:
             with zipfile.ZipFile(zip_path, 'r') as zf:
                 for member in zf.infolist():
-                    # Block Zip Slip (Path Traversal)
-                    # Pastikan file yang diekstrak tidak mencoba keluar dari folder tujuan
+                    # Block Zip Slip (Security)
                     member_path = os.path.join(dest_dir, member.filename)
                     if not os.path.commonpath([dest_dir, member_path]).startswith(dest_dir):
-                        print(f"⚠️ Security Warning: Skipped {member.filename} (Zip Slip attempt)")
-                        continue
+                        continue  # Skip file jahat
 
                     zf.extract(member, dest_dir)
 
-            # Fix Permission Recursive setelah extract
-            import platform
-            if platform.system() != "Windows":
-                # Jalankan chown -R agar user alimpanel bisa akses filenya
-                # Menggunakan subprocess lebih aman/mudah untuk recursive
-                import subprocess
-                subprocess.run(["chown", "-R", f"{owner_user}:{owner_user}", dest_dir], check=False)
+            # [FIX] Hapus subprocess chown recursive.
+            # File hasil extract otomatis milik 'alimpanel'.
 
         except Exception as e:
             print(f"❌ Extract Error: {e}")
 
-    # Jalankan task di background agar request tidak timeout untuk file besar
     background_tasks.add_task(safe_extract_task, zip_full_path, dest_full_path)
 
     return {"message": "Extraction started in background"}
