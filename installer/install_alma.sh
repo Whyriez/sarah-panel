@@ -11,7 +11,7 @@ CURRENT_DIR=$(pwd)
 TARGET_DIR="/var/www/sarah-panel"
 PANEL_PORT=8888
 
-echo "🚀 STARTING ALIMPANEL INSTALLATION (ALMA 8 FIX)..."
+echo "🚀 STARTING ALIMPANEL INSTALLATION (PYTHON 3.9 FIX)..."
 
 # Pindahkan file jika belum di lokasi target
 if [ "$CURRENT_DIR" != "$TARGET_DIR/installer" ] && [ "$CURRENT_DIR" != "$TARGET_DIR" ]; then
@@ -29,7 +29,6 @@ else
 fi
 
 INSTALL_DIR="$TARGET_DIR"
-# [FIX] Generate Password MySQL (Hanya Alphanumeric agar aman di URL/CLI)
 MYSQL_ROOT_PASS=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9')
 
 # --- 0. SWAP MEMORY ---
@@ -50,32 +49,29 @@ firewall-cmd --permanent --add-service={http,https,ssh}
 firewall-cmd --permanent --add-port=${PANEL_PORT}/tcp
 firewall-cmd --reload
 
-# SELinux Permissive
 setenforce 0
 sed -i 's/^SELINUX=.*/SELINUX=permissive/g' /etc/selinux/config
 
-# --- 2. SYSTEM UPDATE & REPO (FIX EL8) ---
+# --- 2. SYSTEM UPDATE & REPO ---
 echo "📦 Updating Repositories..."
 dnf update -y
 dnf install -y epel-release
-
-# [FIX] Gunakan REMI release 8 (Bukan 9)
 dnf install -y https://rpms.remirepo.net/enterprise/remi-release-8.rpm
-dnf makecache
 
-# Dependencies Dasar
-dnf install -y python3 python3-pip python3-devel nginx git mariadb-server curl unzip gcc make tar policycoreutils-python-utils
+# --- [FIX UTAMA] INSTALL PYTHON 3.9 ---
+echo "🐍 Installing Python 3.9 (Required for FastAPI)..."
+dnf module install -y python39
+dnf install -y python39 python39-pip python39-devel
 
-# --- 3. PHP INSTALLATION (FIX) ---
+# Install Dependencies Lain
+dnf install -y nginx git mariadb-server curl unzip gcc make tar policycoreutils-python-utils
+
+# --- 3. PHP INSTALLATION ---
 echo "🐘 Installing PHP 8.2..."
-# Reset module php dulu agar tidak conflict
 dnf module reset php -y
 dnf module enable php:remi-8.2 -y
-
-# Install paket PHP
 dnf install -y php php-fpm php-mysqlnd php-common php-curl php-xml php-zip php-gd php-mbstring php-bcmath php-intl php-pecl-imagick
 
-# Pastikan service nyala
 systemctl enable --now mariadb
 systemctl enable --now nginx
 systemctl enable --now php-fpm
@@ -98,9 +94,8 @@ fi
 chown -R alimpanel:alimpanel "$INSTALL_DIR"
 chmod -R 775 "$INSTALL_DIR"
 
-# --- 6. DATABASE SETUP (FIX SYNTAX) ---
+# --- 6. DATABASE SETUP ---
 echo "🔒 Securing Database..."
-# [FIX] Syntax MariaDB 10.3 menggunakan 'IDENTIFIED BY' untuk plaintext
 mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASS}';"
 mysql -e "FLUSH PRIVILEGES;"
 
@@ -110,7 +105,7 @@ user=root
 password=${MYSQL_ROOT_PASS}
 EOF
 
-# Install phpMyAdmin Manual
+# Install phpMyAdmin
 echo "Installing phpMyAdmin..."
 cd /usr/share
 rm -rf phpmyadmin
@@ -137,17 +132,16 @@ EOF
 
 cd "$INSTALL_DIR"
 
-# --- 7. SETUP BACKEND (FIX PYTHON 3.6) ---
-echo "🐍 Setting up Backend..."
+# --- 7. SETUP BACKEND (FIX PYTHON 3.9 VENV) ---
+echo "🐍 Setting up Backend with Python 3.9..."
 cd "$INSTALL_DIR/backend"
+
+# Hapus venv lama yang rusak (Python 3.6)
 rm -rf .venv
 
-# Setup venv
-sudo -u alimpanel python3 -m venv .venv
-
-# [FIX] Upgrade pip & Install Bcrypt Lama (Kompatibel Python 3.6 di EL8)
-# Kita install bcrypt 3.2.2 secara eksplisit sebelum requirements.txt
-sudo -u alimpanel bash -c "source .venv/bin/activate && pip install --upgrade pip && pip install bcrypt==3.2.2 && pip install -r requirements.txt"
+# [PENTING] Gunakan binary python3.9 secara eksplisit
+sudo -u alimpanel python3.9 -m venv .venv
+sudo -u alimpanel bash -c "source .venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"
 
 # Create .env
 if [ ! -f .env ]; then
@@ -180,6 +174,7 @@ After=network.target
 User=alimpanel
 Group=alimpanel
 WorkingDirectory=${INSTALL_DIR}/backend
+# [PENTING] Path ke uvicorn di dalam venv
 ExecStart=${INSTALL_DIR}/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 EnvironmentFile=${INSTALL_DIR}/backend/.env
 Restart=always
@@ -193,7 +188,7 @@ systemctl daemon-reload
 systemctl enable alimpanel
 systemctl restart alimpanel
 
-# --- 10. CONFIG NGINX (FIX SOCKET) ---
+# --- 10. CONFIG NGINX ---
 echo "🌐 Configuring Nginx..."
 cat > /etc/nginx/conf.d/alimpanel.conf <<EOF
 server {
@@ -231,13 +226,12 @@ server {
 EOF
 mv /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.bak 2>/dev/null
 
-# Fix PHP-FPM User (Apache -> Nginx)
+# Fix PHP-FPM
 if [ -f /etc/php-fpm.d/www.conf ]; then
     sed -i 's/user = apache/user = nginx/g' /etc/php-fpm.d/www.conf
     sed -i 's/group = apache/group = nginx/g' /etc/php-fpm.d/www.conf
     chown -R nginx:nginx /var/lib/php/session /var/lib/php/wsdlcache /var/lib/php/opcache 2>/dev/null
 fi
-# Buat socket directory jika belum ada (kadang di EL8 hilang)
 mkdir -p /run/php-fpm
 
 systemctl restart php-fpm
@@ -251,12 +245,10 @@ sudo -u alimpanel pm2 start npm --name "alimpanel-ui" -- start
 
 echo "⚙️ Generating Startup Script..."
 sudo -u alimpanel pm2 save
-# [FIX] Ambil command startup bersih tanpa logo
 PM2_CMD=$(pm2 startup systemd -u alimpanel --hp /home/alimpanel | grep "sudo env")
 if [ ! -z "$PM2_CMD" ]; then
     eval "$PM2_CMD"
 else
-    # Fallback aman
     pm2 startup systemd -u alimpanel --hp /home/alimpanel | tail -n 1 | bash
 fi
 
@@ -266,8 +258,7 @@ chown -R nginx:nginx /var/www/sarahpanel
 chmod -R 775 /var/www/sarahpanel
 usermod -aG nginx alimpanel
 
-# --- 12. FAIL2BAN & SUDOERS ---
-echo "🛡️ Security Config..."
+# --- 12. SUDOERS & FAIL2BAN ---
 cat > /etc/sudoers.d/alimpanel <<EOF
 alimpanel ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
 alimpanel ALL=(root) NOPASSWD: /usr/bin/certbot
@@ -278,16 +269,6 @@ alimpanel ALL=(root) NOPASSWD: /usr/bin/dnf
 EOF
 dnf install -y fail2ban
 systemctl enable --now fail2ban
-cat > /etc/fail2ban/jail.local <<EOF
-[sshd]
-enabled = true
-port = ssh
-filter = sshd
-logpath = /var/log/secure
-maxretry = 3
-bantime = 3600
-EOF
-systemctl restart fail2ban
 
 PUBLIC_IP=$(curl -s ifconfig.me)
 echo ""
